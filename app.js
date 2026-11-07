@@ -1,0 +1,710 @@
+/* TMG Command Sheet — unofficial play aid for the StarCraft Tabletop Miniatures Game. */
+(function () {
+  'use strict';
+
+  var VERSION = '1.0.0';
+  var DATA = window.TMG_DATA;
+  var root = document.getElementById('app');
+
+  /* ---------- storage ---------- */
+  var store = {
+    get: function (k, d) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+    set: function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+    del: function (k) { try { localStorage.removeItem(k); } catch (e) {} }
+  };
+  var KEY_ARMIES = 'tmg-armies', KEY_SEEDED = 'tmg-seeded';
+  var armies = store.get(KEY_ARMIES, []);
+
+  function uid() { return Math.random().toString(36).slice(2, 9); }
+  function now() { return Date.now(); }
+  function saveArmies() { store.set(KEY_ARMIES, armies); }
+  function findArmy(id) { for (var i = 0; i < armies.length; i++) { if (armies[i].id === id) { return armies[i]; } } return null; }
+
+  function U(unit, models, upgrades) { return { uid: uid(), unit: unit, models: models, upgrades: upgrades || [] }; }
+  if (!store.get(KEY_SEEDED, false)) {
+    armies.push({
+      id: uid(), name: 'Zerg Swarm 2000 (example)', faction: 'zerg', factionCard: 'zerg-swarm', created: now(), updated: now(),
+      cards: ['six-pool', 'cocoon', 'overlord', 'lair', 'hydralisk-den', 'overseer', 'reactive-creep'],
+      units: [U('corpser', 3, ['hydriodic-bile']), U('ravager', 2), U('roachling', 3), U('hydralisk', 4, ['lurking', 'grooved-spines']),
+        U('hydralisk', 4, ['lurking', 'grooved-spines']), U('zergling', 18, ['adrenal-glands', 'shredding-claws']), U('queen', 1),
+        U('zergling', 12, ['shredding-claws']), U('queen', 1), U('corpser', 3)]
+    });
+    armies.push({
+      id: uid(), name: 'Kerrigan\'s Swarm 1000 (example)', faction: 'zerg', factionCard: 'kerrigans-swarm', created: now(), updated: now(),
+      cards: ['hydralisk-den', 'malignant-creep', 'roach-warren', 'accelerating-creep', 'lair'],
+      units: [U('hydralisk', 2), U('kerrigan', 1), U('ks-raptor', 6), U('queen', 1), U('omega-worm', 1), U('swarmling', 18)]
+    });
+    saveArmies();
+    store.set(KEY_SEEDED, true);
+  }
+
+  /* ---------- helpers ---------- */
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function fac(a) { return DATA.factions[a.faction]; }
+  function unitDef(f, id) { for (var i = 0; i < f.units.length; i++) { if (f.units[i].id === id) { return f.units[i]; } } return null; }
+  function cardDef(f, id) { for (var i = 0; i < f.cards.length; i++) { if (f.cards[i].id === id) { return f.cards[i]; } } return null; }
+  function shortName(def) { return def.name.replace(/\s*\(.*\)$/, ''); }
+  function plural(s) { return /s$/.test(s) ? s : s + 's'; }
+  function minModels(def) { return def.brackets[0][0]; }
+  function maxModels(def) { return def.brackets[def.brackets.length - 1][1]; }
+  function supplyFor(def, n) {
+    for (var i = 0; i < def.brackets.length; i++) { var b = def.brackets[i]; if (n >= b[0] && n <= b[1]) { return b[2]; } }
+    return 0;
+  }
+  function cardShort(c) { return c.short || c.name; }
+  function factionTag(a) { var fc = cardDef(fac(a), a.factionCard); return fc ? (fc.tag || null) : null; }
+
+  function encodeArmy(a) {
+    var o = { v: 1, n: a.name, f: a.faction, fc: a.factionCard, c: a.cards, u: a.units.map(function (s) { return [s.unit, s.models, s.upgrades]; }) };
+    var b = btoa(unescape(encodeURIComponent(JSON.stringify(o))));
+    return b.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function decodeArmy(code) {
+    try {
+      var b = code.replace(/-/g, '+').replace(/_/g, '/');
+      while (b.length % 4) { b += '='; }
+      var o = JSON.parse(decodeURIComponent(escape(atob(b))));
+      if (!o || !DATA.factions[o.f]) { return null; }
+      return {
+        id: uid(), name: String(o.n || 'Imported army').slice(0, 80), faction: o.f, factionCard: o.fc, created: now(), updated: now(),
+        cards: (o.c || []).filter(function (id) { return !!cardDef(DATA.factions[o.f], id); }),
+        units: (o.u || []).filter(function (x) { return unitDef(DATA.factions[o.f], x[0]); }).map(function (x) {
+          return U(x[0], Math.max(1, parseInt(x[1], 10) || 1), Array.isArray(x[2]) ? x[2] : []);
+        })
+      };
+    } catch (e) { return null; }
+  }
+
+  /* squads with display names */
+  function squadsOf(a) {
+    var f = fac(a), counts = {}, seen = {};
+    a.units.forEach(function (s) { counts[s.unit] = (counts[s.unit] || 0) + 1; });
+    return a.units.map(function (s) {
+      var def = unitDef(f, s.unit);
+      seen[s.unit] = (seen[s.unit] || 0) + 1;
+      var base = maxModels(def) > 1 || counts[s.unit] > 1 ? plural(shortName(def)) : shortName(def);
+      var letter = counts[s.unit] > 1 ? ' ' + String.fromCharCode(64 + seen[s.unit]) : '';
+      return { s: s, def: def, name: base + letter, typeCount: counts[s.unit] };
+    });
+  }
+
+  function armyWarnings(a) {
+    var f = fac(a), out = [], tag = factionTag(a), fcName = (cardDef(f, a.factionCard) || {}).name;
+    var uniq = {};
+    squadsOf(a).forEach(function (q) {
+      if (q.def.tag && q.def.tag !== tag) { out.push(q.def.name + ' is tagged ' + q.def.tag + ', but your faction card is ' + fcName + '.'); }
+      if (q.def.unique) { uniq[q.def.id] = (uniq[q.def.id] || 0) + 1; if (uniq[q.def.id] === 2) { out.push(q.def.name + ' is Unique but appears more than once.'); } }
+    });
+    var creep = 0;
+    a.cards.forEach(function (id) {
+      var c = cardDef(f, id); if (!c) { return; }
+      if (c.type === 'creep') { creep++; }
+      if (c.tag && c.tag !== tag) { out.push(c.name + ' is tagged ' + c.tag + ', but your faction card is ' + fcName + '.'); }
+    });
+    if (creep !== 1) { out.push('Zerg Creep: the faction card asks for exactly one Creep card (you have ' + creep + ').'); }
+    return out;
+  }
+  function armyTotals(a) {
+    var f = fac(a), supply = 0, models = 0, bm = 0;
+    a.units.forEach(function (s) { var d = unitDef(f, s.unit); supply += supplyFor(d, s.models); models += s.models; });
+    var fc = cardDef(f, a.factionCard); if (fc) { bm += fc.bm || 0; }
+    a.cards.forEach(function (id) { var c = cardDef(f, id); if (c) { bm += c.bm || 0; } });
+    return { supply: supply, models: models, units: a.units.length, bm: bm };
+  }
+
+  /* ---------- routing ---------- */
+  var ui = { focus: 'all', pending: null, adding: false, confirmDelete: false, toast: '', toastTimer: null, lastRoute: '' };
+  function route() {
+    var h = location.hash.replace(/^#\/?/, '');
+    var parts = h.split('/');
+    return { name: parts[0] || 'home', id: parts.slice(1).join('/') };
+  }
+  function go(hash) { location.hash = hash; }
+  window.addEventListener('hashchange', function () { ui.pending = null; ui.adding = false; ui.confirmDelete = false; ui.focus = 'all'; render(true); });
+
+  function toast(msg) {
+    ui.toast = msg; render();
+    clearTimeout(ui.toastTimer);
+    ui.toastTimer = setTimeout(function () { ui.toast = ''; render(); }, 2600);
+  }
+
+  /* ---------- render ---------- */
+  function render(routeChanged) {
+    var r = route();
+    var keepScroll = !routeChanged && ui.lastRoute === r.name + '/' + r.id;
+    var winY = window.scrollY;
+    var rp = root.querySelector('.rpane'), pp = root.querySelector('.ppane');
+    var rpY = rp ? rp.scrollTop : 0, ppY = pp ? pp.scrollTop : 0;
+
+    var html;
+    if (r.name === 'play') { html = viewPlay(findArmy(r.id)); }
+    else if (r.name === 'edit') { html = viewEdit(findArmy(r.id)); }
+    else if (r.name === 'import') { html = viewImport(r.id); }
+    else if (r.name === 'about') { html = viewAbout(); }
+    else { html = viewHome(); }
+    if (ui.toast) { html += '<div class="toast" role="status">' + esc(ui.toast) + '</div>'; }
+
+    root.className = 'app' + (r.name === 'play' ? ' play' : '');
+    root.innerHTML = html;
+    ui.lastRoute = r.name + '/' + r.id;
+
+    if (keepScroll) {
+      window.scrollTo(0, winY);
+      rp = root.querySelector('.rpane'); pp = root.querySelector('.ppane');
+      if (rp) { rp.scrollTop = rpY; } if (pp) { pp.scrollTop = ppY; }
+    } else { window.scrollTo(0, 0); }
+  }
+
+  var ICON = {
+    move: '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6l6 6-6 6"/><path d="M13 6l6 6-6 6"/></svg>',
+    assault: '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/></svg>',
+    combat: '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l11 11M15 15l-2 2M15 15l2-2M16 16l4 4"/><path d="M20 4L9 15M9 15l2 2M9 15l-2-2M8 16l-4 4"/></svg>',
+    score: '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/></svg>',
+    any: '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z"/></svg>',
+    list: '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>',
+    cards: '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="5" y="3" width="11" height="15"/><path d="M9 21h10V7"/></svg>',
+    back: '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>'
+  };
+
+  function secHead(icon, kicker, title, sub, right) {
+    return '<div class="sechead"><span class="ico">' + icon + '</span><div class="t"><span class="kicker">' + esc(kicker) + '</span><h2>' + esc(title) + '</h2>' +
+      (sub ? '<span class="muted" style="font-size:12px">' + esc(sub) + '</span>' : '') + '</div>' + (right || '') + '</div>';
+  }
+
+  /* ---------- home ---------- */
+  var installEvt = null;
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); installEvt = e; render(); });
+
+  function viewHome() {
+    var h = '<div class="inner">';
+    h += '<div class="topbar"><div class="titleblock"><span class="kicker">Unofficial play aid · StarCraft TMG</span><h1>TMG Command Sheet</h1></div>' +
+      '<div class="row">' + (installEvt ? '<button class="btn soft" data-act="install">Install app</button>' : '') +
+      '<a class="btn" href="#/about">About</a></div></div>';
+    h += '<p class="muted" style="font-size:14px;line-height:1.5;max-width:720px">Build an army from your Command Center roster, then play from one screen: abilities and weapons sorted by phase, health and model counts, exhausted cards and your BM pool.</p>';
+    h += '<div class="row"><button class="btn primary" data-act="new">New army</button></div>';
+    if (!armies.length) {
+      h += '<p class="empty">No armies yet. Tap New army to build one.</p>';
+    } else {
+      h += '<div class="armylist">';
+      armies.slice().sort(function (x, y) { return (y.updated || 0) - (x.updated || 0); }).forEach(function (a) {
+        var f = fac(a), t = armyTotals(a), fc = cardDef(f, a.factionCard);
+        h += '<div class="card army"><div class="stack" style="gap:4px"><span class="kicker">' + esc(f.name) + ' · ' + esc(fc ? fc.name : '') + '</span>' +
+          '<h3 style="font-size:18px">' + esc(a.name) + '</h3><span class="meta">' + t.units + ' units · ' + t.models + ' models · Supply ' + t.supply + ' · ' + a.cards.length + ' cards</span></div>' +
+          '<div class="row"><a class="btn primary" href="#/play/' + a.id + '">Play</a><a class="btn" href="#/edit/' + a.id + '">Edit</a></div></div>';
+      });
+      h += '</div>';
+    }
+    h += '<p class="foot">Fan-made and unofficial. Not affiliated with or endorsed by Archon Studio or Blizzard Entertainment. Card summaries are shorthand; your printed cards have the full wording.</p>';
+    return h + '</div>';
+  }
+
+  /* ---------- about ---------- */
+  function viewAbout() {
+    var h = '<div class="inner" style="max-width:760px">';
+    h += '<div class="topbar"><div class="left"><a class="btn small" href="#/">' + ICON.back + ' Back</a></div></div>';
+    h += '<div class="titleblock"><span class="kicker">About</span><h1>TMG Command Sheet</h1></div>';
+    h += '<p style="line-height:1.55">An unofficial, fan-made play aid for the StarCraft Tabletop Miniatures Game. It is not affiliated with or endorsed by Archon Studio or Blizzard Entertainment. StarCraft is a trademark of Blizzard Entertainment. Card summaries are written in shorthand; the printed cards are the rules.</p>';
+    h += '<div class="card plain stack"><h3>Install it on your phone</h3><p class="muted" style="font-size:13px;line-height:1.5">In Chrome or Samsung Internet, open the browser menu and choose <b>Install app</b> or <b>Add to Home screen</b>. It then opens full screen and works with no signal. Your armies and game tracking are saved on this device only.</p></div>';
+    h += '<div class="card plain stack"><h3>Card data</h3>';
+    Object.keys(DATA.factions).forEach(function (k) {
+      var f = DATA.factions[k];
+      h += '<span class="kicker">' + esc(f.name) + '</span>';
+      f.sources.forEach(function (s) { h += '<span class="muted" style="font-size:13px">' + esc(s.label) + ': ' + esc(s.version) + '</span>'; });
+    });
+    h += '<span class="muted" style="font-size:13px">Terran and Protoss are not in the app yet.</span></div>';
+    h += '<p class="muted mono">App version ' + VERSION + '</p>';
+    return h + '</div>';
+  }
+
+  /* ---------- import ---------- */
+  function viewImport(code) {
+    var a = decodeArmy(code || '');
+    var h = '<div class="inner" style="max-width:760px">';
+    h += '<div class="topbar"><div class="left"><a class="btn small" href="#/">' + ICON.back + ' Home</a></div></div>';
+    if (!a) {
+      return h + '<p class="empty">This army link didn\'t work. Ask whoever sent it to share it again.</p></div>';
+    }
+    var f = fac(a), t = armyTotals(a), fc = cardDef(f, a.factionCard);
+    h += '<div class="titleblock"><span class="kicker">Shared army</span><h1>' + esc(a.name) + '</h1></div>';
+    h += '<div class="card plain stack"><span class="muted">' + esc(f.name) + ' · ' + esc(fc ? fc.name : '') + ' · ' + t.units + ' units · Supply ' + t.supply + '</span>';
+    squadsOf(a).forEach(function (q) { h += '<span style="font-size:14px">' + esc(q.name) + ' · ' + q.s.models + (q.s.models === 1 ? ' model' : ' models') + (q.s.upgrades.length ? ' · ' + esc(q.s.upgrades.map(function (u) { return upgName(q.def, u); }).join(', ')) : '') + '</span>'; });
+    h += '</div><div class="row"><button class="btn primary" data-act="import" data-code="' + esc(code) + '">Add to my armies</button><a class="btn" href="#/">Cancel</a></div>';
+    return h + '</div>';
+  }
+  function upgName(def, id) { for (var i = 0; i < def.upgrades.length; i++) { if (def.upgrades[i].id === id) { return def.upgrades[i].name; } } return id; }
+
+  /* ---------- editor ---------- */
+  function viewEdit(a) {
+    if (!a) { return '<div class="inner"><p class="empty">That army isn\'t on this device. <a href="#/">Go home</a></p></div>'; }
+    var f = fac(a), t = armyTotals(a), warns = armyWarnings(a);
+    var h = '<div class="inner">';
+    h += '<div class="topbar"><div class="left"><a class="btn small" href="#/">' + ICON.back + ' Armies</a></div><div class="row"><a class="btn primary" href="#/play/' + a.id + '">Play</a></div></div>';
+    h += '<div class="field"><label for="armyName">Army name</label><input id="armyName" class="text" data-in="name" value="' + esc(a.name) + '" maxlength="80" autocomplete="off"></div>';
+
+    h += '<div class="editlayout"><div class="col">';
+    h += secHead(ICON.list, 'Units', 'Roster', 'Add units, set model counts, tick upgrades', '<span class="count">' + a.units.length + '</span>');
+    var sq = squadsOf(a);
+    if (!sq.length) { h += '<p class="empty">No units yet.</p>'; }
+    sq.forEach(function (q) {
+      var s = q.s, def = q.def;
+      h += '<div class="card stack"><div class="row" style="justify-content:space-between;align-items:flex-start;flex-wrap:nowrap"><div class="stack" style="gap:3px;min-width:0"><span class="unit"><span class="name">' + esc(q.name) + '</span></span>' +
+        '<span class="muted" style="font-size:12px">' + esc(def.slot) + ' · Supply ' + supplyFor(def, s.models) + (def.tag ? ' · ' + esc(def.tag) : '') + (def.unique ? ' · Unique' : '') + '</span></div>' +
+        '<button class="btn small danger" data-act="remove-unit" data-uid="' + s.uid + '" aria-label="Remove ' + esc(q.name) + '">Remove</button></div>';
+      h += '<div class="row" style="justify-content:space-between"><span class="label">Models</span><div class="stepper">' +
+        '<button class="iconbtn" data-act="models" data-uid="' + s.uid + '" data-d="-1" aria-label="Fewer models"' + (s.models <= minModels(def) ? ' disabled' : '') + '>−</button>' +
+        '<b>' + s.models + '</b><button class="iconbtn" data-act="models" data-uid="' + s.uid + '" data-d="1" aria-label="More models"' + (s.models >= maxModels(def) ? ' disabled' : '') + '>+</button></div></div>';
+      if (def.upgrades.length) {
+        h += '<span class="label">Upgrades</span><div class="grid2">';
+        def.upgrades.forEach(function (u) {
+          var on = s.upgrades.indexOf(u.id) !== -1;
+          h += '<label class="choice' + (on ? ' on' : '') + '"><input type="checkbox" data-in="upg" data-uid="' + s.uid + '" data-upg="' + u.id + '"' + (on ? ' checked' : '') + '><span class="c"><span class="n">' + esc(u.name) + '</span><span class="d">' + esc(upgSummary(u)) + '</span></span></label>';
+        });
+        h += '</div>';
+      }
+      h += '</div>';
+    });
+    if (ui.adding) {
+      h += '<div class="card plain stack"><div class="row" style="justify-content:space-between"><h3>Add a unit</h3><button class="btn small" data-act="cancel-add">Cancel</button></div><div class="picker">';
+      f.units.forEach(function (d) {
+        h += '<button class="pick" data-act="pick-unit" data-unit="' + d.id + '"><span class="n">' + esc(d.name) + '</span><span class="d">' + esc(d.slot) + ' · ' + minModels(d) + (maxModels(d) > minModels(d) ? '–' + maxModels(d) : '') + ' models' + (d.tag ? ' · ' + esc(d.tag) : '') + '</span></button>';
+      });
+      h += '</div></div>';
+    } else {
+      h += '<button class="btn soft" data-act="add-unit">+ Add unit</button>';
+    }
+    h += '</div><div class="col">';
+    h += secHead(ICON.cards, 'Command cards', 'Faction card', '', '');
+    h += '<div class="stack">';
+    f.cards.filter(function (c) { return c.type === 'faction'; }).forEach(function (c) {
+      var on = a.factionCard === c.id;
+      h += '<label class="choice' + (on ? ' on' : '') + '"><input type="radio" name="fc" data-in="fc" value="' + c.id + '"' + (on ? ' checked' : '') + '><span class="c"><span class="n">' + esc(c.name) + '</span><span class="d">Slots: ' + esc(c.slots) + ' · BM ' + c.bm + '</span></span></label>';
+    });
+    h += '</div>';
+    ['tactical', 'creep'].forEach(function (type) {
+      h += secHead(ICON.cards, 'Command cards', type === 'creep' ? 'Creep card' : 'Tactical cards', '', '');
+      h += '<div class="grid2">';
+      f.cards.filter(function (c) { return c.type === type; }).forEach(function (c) {
+        var on = a.cards.indexOf(c.id) !== -1;
+        var d = (c.unique ? 'Unique · ' : '') + (c.slots ? 'Slots: ' + c.slots + ' · ' : '') + (c.bm ? 'BM ' + c.bm + ' · ' : '') + (c.tag ? c.tag + ' · ' : '') +
+          c.abilities.filter(function (x) { return x.note !== 'army building' && x.kind !== 'Reminder'; }).map(function (x) { return x.name; }).join(', ');
+        h += '<label class="choice' + (on ? ' on' : '') + '"><input type="checkbox" data-in="card" value="' + c.id + '"' + (on ? ' checked' : '') + '><span class="c"><span class="n">' + esc(c.name) + '</span><span class="d">' + esc(d) + '</span></span></label>';
+      });
+      h += '</div>';
+    });
+    h += '<div class="card plain stack"><h3>Share or remove</h3><div class="row"><button class="btn soft" data-act="share" data-id="' + a.id + '">Share army link</button>' +
+      '<button class="btn" data-act="duplicate" data-id="' + a.id + '">Duplicate</button>' +
+      '<button class="btn danger" data-act="delete" data-id="' + a.id + '">' + (ui.confirmDelete ? 'Tap again to delete' : 'Delete army') + '</button></div></div>';
+    h += '</div></div>';
+
+    h += '<div class="summary"><span class="mono">SUPPLY ' + t.supply + ' · ' + t.units + ' UNITS · ' + t.models + ' MODELS · BM ' + t.bm + '</span>' +
+      (warns.length ? '<span class="warn">' + warns.length + (warns.length === 1 ? ' thing' : ' things') + ' to check</span>' : '') +
+      '<a class="btn primary" style="margin-left:auto" href="#/play/' + a.id + '">Play</a></div>';
+    if (warns.length) {
+      h += '<div class="card plain stack"><h3>Worth checking</h3>' + warns.map(function (w) { return '<span class="warn">' + esc(w) + '</span>'; }).join('') +
+        '<span class="muted" style="font-size:12px">These are reminders, not blocks. Go with your rulebook and opponent.</span></div>';
+    }
+    return h + '</div>';
+  }
+  function upgSummary(u) {
+    var bits = [];
+    (u.abilities || []).forEach(function (x) { bits.push(x.text); });
+    (u.weapons || []).forEach(function (w) { bits.push((u.replaces ? 'Replaces ' + u.replaces + ': ' : 'Weapon: ') + w.name + ' ' + w.rng + ' · RoA ' + w.roa + ' · Hit ' + w.hit + (w.kw !== '-' ? ' · ' + w.kw : '')); });
+    (u.mods || []).forEach(function (m) { bits.push(m.weapon + (m.addKw ? ' gains ' + m.addKw : '') + (m.surge ? ' gets Surge type ' + m.surge : '') + (m.sdice ? ', S Dice ' + m.sdice : '')); });
+    return bits.join(' ');
+  }
+
+  /* ---------- play: build the sheet ---------- */
+  function playKey(a) { return 'tmg-play-' + a.id; }
+  function playState(a) { var p = store.get(playKey(a), null) || {}; return { dmg: p.dmg || {}, exh: p.exh || {}, bm: p.bm || 0 }; }
+  function savePlay(a, p) { store.set(playKey(a), p); }
+
+  function effectiveWeapons(def, ups) {
+    var ws = def.weapons.map(function (w) { var c = {}; for (var k in w) { c[k] = w[k]; } c.notes = []; return c; });
+    def.upgrades.forEach(function (u) {
+      if (ups.indexOf(u.id) === -1) { return; }
+      if (u.replaces) { ws = ws.filter(function (w) { return w.name !== u.replaces; }); }
+      (u.weapons || []).forEach(function (w) {
+        var c = {}; for (var k in w) { c[k] = w[k]; }
+        c.upgraded = true; c.notes = [u.replaces ? u.name + ' upgrade (replaces ' + u.replaces + ')' : u.name + ' upgrade'];
+        ws.push(c);
+      });
+    });
+    def.upgrades.forEach(function (u) {
+      if (ups.indexOf(u.id) === -1 || !u.mods) { return; }
+      u.mods.forEach(function (m) {
+        ws.forEach(function (w) {
+          if (w.name !== m.weapon) { return; }
+          if (m.surge) { w.surge = m.surge; }
+          if (m.sdice) { w.sdice = m.sdice; }
+          if (m.addKw) { w.kw = w.kw === '-' ? m.addKw : w.kw + ', ' + m.addKw; }
+          w.upgraded = true; w.notes.push('from ' + u.name);
+        });
+      });
+    });
+    return ws;
+  }
+
+  var KIND_RANK = { Active: 0, Reaction: 1, Passive: 2, Reminder: 3 };
+
+  function buildSheet(a, ps) {
+    var f = fac(a), sq = squadsOf(a), byUid = {}, dead = {};
+    sq.forEach(function (q) {
+      byUid[q.s.uid] = q;
+      var max = q.def.hp * q.s.models, d = Math.min(ps.dmg[q.s.uid] || 0, max);
+      if (d >= max) { dead[q.s.uid] = true; }
+    });
+
+    function ownerLabel(uids) {
+      var types = [], groups = {};
+      uids.forEach(function (u) { var t = byUid[u].def.id; if (!groups[t]) { groups[t] = []; types.push(t); } groups[t].push(u); });
+      return types.map(function (t) {
+        var all = sq.filter(function (q) { return q.def.id === t; });
+        if (all.length === groups[t].length) {
+          var def = all[0].def;
+          return all.length > 1 || maxModels(def) > 1 ? plural(shortName(def)) : shortName(def);
+        }
+        return groups[t].map(function (u) { return byUid[u].name; }).join(' · ');
+      }).join(' · ');
+    }
+    function ownerColor(uids) {
+      var t = byUid[uids[0]].def.id;
+      for (var i = 1; i < uids.length; i++) { if (byUid[uids[i]].def.id !== t) { return '#D3DAE1'; } }
+      return colorFor(t);
+    }
+
+    var phases = { move: [], assault: [], combat: [], score: [], any: [] };
+    var weapons = { assault: [], combat: [] };
+
+    /* unit abilities, merged when identical */
+    var amap = {}, aorder = [];
+    sq.forEach(function (q) {
+      var list = q.def.abilities.map(function (x) { return { x: x, upg: false }; });
+      q.def.upgrades.forEach(function (u) {
+        if (q.s.upgrades.indexOf(u.id) !== -1) { (u.abilities || []).forEach(function (x) { list.push({ x: x, upg: true }); }); }
+      });
+      list.forEach(function (it) {
+        var x = it.x, k = [x.name, x.phase, x.kind, x.cost, x.text, it.upg ? 1 : 0].join('|');
+        if (!amap[k]) { amap[k] = { x: x, upg: it.upg, owners: [] }; aorder.push(k); }
+        if (amap[k].owners.indexOf(q.s.uid) === -1) { amap[k].owners.push(q.s.uid); }
+      });
+    });
+    aorder.forEach(function (k, i) {
+      var e = amap[k];
+      phases[e.x.phase].push({ key: 'u' + i, x: e.x, upgrade: e.upg, owners: e.owners, label: ownerLabel(e.owners), color: ownerColor(e.owners) });
+    });
+
+    /* weapons, merged when identical profile on the same unit type */
+    var wmap = {}, worder = [];
+    sq.forEach(function (q) {
+      effectiveWeapons(q.def, q.s.upgrades).forEach(function (w) {
+        var k = q.def.id + '|' + JSON.stringify([w.name, w.phase, w.rng, w.tgt, w.roa, w.hit, w.surge, w.sdice, w.dmg, w.kw, w.notes]);
+        if (!wmap[k]) { wmap[k] = { w: w, owners: [] }; worder.push(k); }
+        wmap[k].owners.push(q.s.uid);
+      });
+    });
+    worder.forEach(function (k) {
+      var e = wmap[k];
+      weapons[e.w.phase].push({ w: e.w, owners: e.owners, label: ownerLabel(e.owners), color: ownerColor(e.owners) });
+    });
+
+    /* card abilities */
+    var cardList = [a.factionCard].concat(a.cards);
+    cardList.forEach(function (id) {
+      var c = cardDef(f, id); if (!c) { return; }
+      c.abilities.forEach(function (x, i) {
+        if (x.note === 'army building') { return; }
+        phases[x.phase].push({ key: 'c-' + c.id + '-' + i, x: x, card: c, label: cardShort(c), color: '#D9C7F2' });
+      });
+    });
+
+    Object.keys(phases).forEach(function (p) {
+      phases[p].sort(function (m, n) { return (KIND_RANK[m.x.kind] || 0) - (KIND_RANK[n.x.kind] || 0); });
+    });
+    return { f: f, sq: sq, dead: dead, phases: phases, weapons: weapons, cards: cardList.map(function (id) { return cardDef(f, id); }).filter(Boolean) };
+  }
+
+  var PALETTE = ['#9FE07A', '#7DB4E6', '#F2A65A', '#5FCFB8', '#F29BD0', '#E9A6F0', '#D7B58C', '#E3C04B', '#A9C8F5', '#F5B8A0', '#B8E0D2', '#C3CBD3'];
+  var colorIdx = {};
+  function colorFor(typeId) {
+    if (!(typeId in colorIdx)) { colorIdx[typeId] = Object.keys(colorIdx).length % PALETTE.length; }
+    return PALETTE[colorIdx[typeId]];
+  }
+
+  function parseBM(cost) {
+    var m = /^(\d+)\s*BM$/.exec(cost || ''); if (m) { return { n: parseInt(m[1], 10) }; }
+    var r = /^(\d+)-(\d+)\s*BM$/.exec(cost || ''); if (r) { return { min: parseInt(r[1], 10), max: parseInt(r[2], 10) }; }
+    return null;
+  }
+
+  function viewPlay(a) {
+    if (!a) { return '<div class="inner"><p class="empty">That army isn\'t on this device. <a href="#/">Go home</a></p></div>'; }
+    colorIdx = {};
+    var ps = playState(a), S = buildSheet(a, ps), t = armyTotals(a), focus = ui.focus;
+    S.sq.forEach(function (q) { colorFor(q.def.id); });
+    var fc = cardDef(S.f, a.factionCard);
+
+    function isOff(owners, card) {
+      if (focus !== 'all') {
+        if (card) { if (focus !== 'cards') { return true; } }
+        else if (!owners.some(function (u) { return S.sq.some(function (q) { return q.s.uid === u && q.def.id === focus; }); })) { return true; }
+      }
+      return !card && owners.length > 0 && owners.every(function (u) { return S.dead[u]; });
+    }
+
+    var exhCount = Object.keys(ps.exh).length;
+    var cardTotal = S.cards.filter(function (c) { return c.abilities.some(function (x) { return x.kind === 'Active' || x.kind === 'Reaction'; }); }).length;
+
+    var h = '<div class="inner">';
+    h += '<div class="topbar topline"><div class="left"><a class="btn small" href="#/" aria-label="Back to armies">' + ICON.back + '</a>' +
+      '<a class="btn small" href="#/edit/' + a.id + '">Edit</a>' +
+      '<div class="titleblock"><span class="kicker">' + esc(S.f.name) + ' · ' + esc(fc ? fc.name : '') + '</span><h1>' + esc(a.name) + '</h1></div></div>' +
+      '<div class="bmbar" aria-label="Biomass and cards"><span class="kicker" style="color:var(--accent-soft)">BM pool</span>' +
+      '<button class="iconbtn" data-act="bm" data-d="-1" aria-label="Remove 1 BM">−</button><span class="val" aria-live="polite">' + ps.bm + '</span>' +
+      '<button class="iconbtn" data-act="bm" data-d="1" aria-label="Add 1 BM">+</button>' +
+      '<span class="mono exhcount" style="color:var(--text2)">' + exhCount + '/' + cardTotal + ' CARDS EXHAUSTED</span>' +
+      '<button class="btn primary" style="margin-left:auto" data-act="readyall">Ready all cards</button></div></div>';
+    h += '<div class="tiles"><div class="tile"><b>' + t.supply + '</b><span>SUPPLY</span></div><div class="tile"><b>' + t.units + '</b><span>UNITS</span></div><div class="tile"><b>' + t.models + '</b><span>MODELS</span></div><div class="tile"><b>' + t.bm + '</b><span>BM ON CARDS</span></div></div>';
+
+    var jumps = [['≡', 'Roster', 'sec-roster'], ['01', 'Move', 'ph-move'], ['02', 'Assault', 'ph-assault'], ['03', 'Combat', 'ph-combat'], ['04', 'Score', 'ph-score'], ['∞', 'Always', 'ph-any']];
+    h += '<div class="tools"><nav class="jnav" aria-label="Jump to section">' + jumps.map(function (j) { return '<a href="#" data-act="jump" data-to="' + j[2] + '"><span>' + j[0] + '</span><span>' + j[1] + '</span></a>'; }).join('') + '</nav>';
+    var types = []; S.sq.forEach(function (q) { if (types.indexOf(q.def.id) === -1) { types.push(q.def.id); } });
+    h += '<section class="chips" aria-label="Focus"><span class="kicker" style="color:var(--muted);flex-shrink:0">Focus</span>';
+    var chipDefs = [{ id: 'all', label: 'All', color: '#B98CF0', n: 0 }].concat(types.map(function (tid) {
+      var all = S.sq.filter(function (q) { return q.def.id === tid; }), def = all[0].def;
+      return { id: tid, label: all.length > 1 || maxModels(def) > 1 ? plural(shortName(def)) : shortName(def), color: colorFor(tid), n: all.length };
+    })).concat([{ id: 'cards', label: 'Cards', color: '#D9C7F2', n: 0 }]);
+    chipDefs.forEach(function (c) {
+      var on = focus === c.id;
+      h += '<button data-act="focus" data-id="' + c.id + '" aria-pressed="' + on + '" style="background:' + (on ? c.color : 'transparent') + ';color:' + (on ? '#0F1317' : c.color) + ';border-color:' + (on ? c.color : 'rgba(255,255,255,.2)') + '">' + esc(c.label) + (c.n > 1 ? '<small>×' + c.n + '</small>' : '') + '</button>';
+    });
+    h += '</section></div>';
+
+    h += '<div class="main">';
+    /* roster */
+    h += '<section id="sec-roster" class="rpane">' + secHead(ICON.list, 'Statlines + health', 'Roster', '', '<button class="btn small" data-act="resethp">Reset HP</button>');
+    S.sq.forEach(function (q) {
+      var def = q.def, s = q.s, col = colorFor(def.id);
+      var max = def.hp * s.models, d = Math.min(ps.dmg[s.uid] || 0, max), rem = max - d, alive = Math.ceil(rem / def.hp);
+      var dim = focus !== 'all' && focus !== def.id;
+      h += '<div class="card unit stack' + (dim ? ' dim' : '') + '" style="gap:10px"><div class="head"><div class="stack" style="gap:3px;min-width:0">' +
+        '<span class="name" style="color:' + col + '">' + esc(q.name) + '</span><span class="muted" style="font-size:12px">' +
+        (def.slot === 'Summoned' ? 'Summoned · ' + s.models + ' models · Supply 0' : esc(def.slot) + ' · ' + s.models + (s.models === 1 ? ' model' : ' models') + ' · Supply ' + supplyFor(def, s.models)) + '</span>' +
+        (s.upgrades.length ? '<span class="mono" style="color:var(--upg)">+ ' + esc(s.upgrades.map(function (u) { return upgName(def, u); }).join(', ')) + '</span>' : '') + '</div>' +
+        (rem === 0 ? '<span class="badge dead">DESTROYED</span>' : '') + '</div>';
+      h += '<div class="statgrid"><div><b>' + esc(def.speed) + '</b><span>SPEED</span></div><div><b>' + esc(def.armour) + '</b><span>ARMOUR</span></div><div><b>' + esc(def.evade) + '</b><span>EVADE</span></div><div><b>' + def.hp + '</b><span>HIT POINTS</span></div><div><b>' + def.size + '</b><span>SIZE</span></div></div>';
+      h += '<div class="hp"><div class="segs" aria-hidden="true">';
+      for (var i = 0; i < s.models; i++) {
+        var fill = i < alive - 1 ? 1 : (i === alive - 1 ? (rem - def.hp * (alive - 1)) / def.hp : 0);
+        h += '<i><em style="width:' + Math.round(fill * 100) + '%;background:' + col + '"></em></i>';
+      }
+      h += '</div><div class="hprow"><button class="hit" data-act="hit" data-uid="' + s.uid + '" aria-label="Deal 1 damage to ' + esc(q.name) + '">−</button><div class="mid">' +
+        '<div class="num"><b>' + rem + '<small>/' + max + '</small></b><span>HP LEFT</span></div>' +
+        (s.models > 1 ? '<div class="num"><b style="color:' + col + '">' + alive + '<small>/' + s.models + '</small></b><span>MODELS</span></div>' : '') +
+        '</div><button class="heal" data-act="heal" data-uid="' + s.uid + '" aria-label="Restore 1 HP to ' + esc(q.name) + '">+</button></div></div></div>';
+    });
+    h += '</section>';
+
+    /* phases */
+    var P = [
+      { k: 'move', kicker: 'Phase 1', title: 'Movement', sub: 'Deploy from reserves, move, or disengage.' },
+      { k: 'assault', kicker: 'Phase 2', title: 'Assault', sub: 'Move, charge, hold, or shoot.' },
+      { k: 'combat', kicker: 'Phase 3', title: 'Combat', sub: 'Engaged units fight in melee.' },
+      { k: 'score', kicker: 'Phase 4', title: 'Scoring', sub: 'Claim objectives, then clear tokens. End-of-round reminders.' },
+      { k: 'any', kicker: 'Passive · reactions · any time', title: 'Always on', sub: 'Constant effects and triggers usable in any phase.' }
+    ];
+    function phaseHtml(p) {
+      var abs = S.phases[p.k], ws = S.weapons[p.k] || [], n = abs.length + ws.length;
+      var out = '<section class="phase" id="ph-' + p.k + '">' + secHead(ICON[p.k], p.kicker, p.title, p.sub, '<span class="count">' + (n < 10 ? '0' : '') + n + '</span>');
+      if (ws.length) {
+        out += '<span class="kicker" style="color:var(--muted)">' + (p.k === 'assault' ? 'Ranged weapons' : 'Close combat weapons') + '</span>';
+        ws.forEach(function (e) {
+          var w = e.w, off = isOff(e.owners, null);
+          out += '<div class="weapon' + (off ? ' dim' : '') + '"><div class="row" style="justify-content:space-between;align-items:flex-start;flex-wrap:nowrap"><div class="row" style="min-width:0"><h3 style="font-size:15px;font-family:var(--display);font-weight:600">' + esc(w.name) + '</h3>' +
+            (w.upgraded ? '<span class="badge upg">UPGRADED</span>' : '') + '</div><span class="tag" style="color:' + e.color + ';border-color:' + e.color + '66">' + esc(e.label) + '</span></div>' +
+            '<div class="wtable"><span class="h">RNG</span><span class="h">Target</span><span class="h">RoA</span><span class="h">Hit</span><span class="h">Surge type</span><span class="h">S Dice</span><span class="h">Dmg</span>' +
+            '<span class="v">' + esc(w.rng) + '</span><span>' + esc(w.tgt) + '</span><span class="v">' + esc(w.roa) + '</span><span class="v">' + esc(w.hit) + '</span><span>' + esc(w.surge) + '</span><span class="v">' + esc(w.sdice) + '</span><span class="v">' + esc(w.dmg) + '</span></div>' +
+            '<div class="kw"><b>Keyword</b><strong>' + esc(w.kw) + '</strong>' + (w.notes && w.notes.length ? '<em>' + esc(w.notes.join('; ')) + '</em>' : '') + '</div></div>';
+        });
+        out += '<span class="kicker" style="color:var(--muted);padding-top:6px">Abilities</span>';
+      }
+      if (!n) { out += '<p class="empty">Nothing in this army is used in this phase.</p>'; }
+      abs.forEach(function (e) { out += abilityHtml(e); });
+      return out + '</section>';
+    }
+    function abilityHtml(e) {
+      var x = e.x, active = x.kind === 'Active' || x.kind === 'Reaction';
+      var card = e.card || null, cardTap = !!card && active;
+      var bmc = parseBM(x.cost), unitTap = !card && active && bmc && (bmc.n > 0 || bmc.max);
+      var exState = card ? ps.exh[card.id] : null, exhausted = cardTap && !!exState;
+      var open = ui.pending === e.key && !exhausted;
+      var off = isOff(e.owners || [], card);
+      var cls = 'card ab stack' + (exhausted ? ' exhausted' : '') + (open ? ' open' : '') + (off ? ' dim' : (exhausted ? ' half' : ''));
+      var meta = [x.kind, x.cost, x.note].filter(Boolean).join(' · ').toUpperCase();
+      var out = '<div class="' + cls + '" style="gap:6px"><div class="top"><span class="nm">' + esc(x.name) + '</span><span class="tag" style="color:' + e.color + ';border-color:' + e.color + '66">' + esc(e.label) + '</span></div>' +
+        '<p>' + esc(x.text) + '</p><div class="row"><span class="meta">▸ ' + esc(meta) + '</span>' +
+        (e.upgrade ? '<span class="badge upg">UPGRADE</span>' : '') +
+        (exhausted ? '<span class="badge exh">' + (exState === 'bm' ? 'EXHAUSTED · SPENT FOR BM' : 'EXHAUSTED') + '</span>' : '');
+      if (cardTap) {
+        out += '<button class="btn small act ' + (exhausted ? '' : (open ? 'primary' : 'soft')) + '" data-act="' + (exhausted ? 'ready' : 'tap') + '" data-key="' + e.key + '" data-card="' + card.id + '" aria-expanded="' + open + '">' + (exhausted ? 'Ready card' : 'Use') + '</button>';
+      } else if (unitTap) {
+        out += '<button class="btn small act ' + (open ? 'primary' : 'soft') + '" data-act="tap" data-key="' + e.key + '" aria-expanded="' + open + '">Pay ' + esc(x.cost) + '</button>';
+      }
+      out += '</div>';
+      if (open) {
+        out += '<div class="ask">';
+        if (cardTap) {
+          out += '<span>' + (card.bm > 0 ? 'Exhaust ' + esc(cardShort(card)) + ': use ' + esc(x.name) + ', or spend the card for ' + card.bm + ' BM?' : 'Exhaust ' + esc(cardShort(card)) + ' to use ' + esc(x.name) + '?') + '</span><div class="row">' +
+            '<button class="btn primary" data-act="exhaust" data-card="' + card.id + '" data-mode="ability">Use ' + esc(x.name) + '</button>' +
+            (card.bm > 0 ? '<button class="btn" style="color:var(--good);border-color:rgba(95,207,184,.6)" data-act="exhaust" data-card="' + card.id + '" data-mode="bm">Spend for +' + card.bm + ' BM</button>' : '');
+        } else {
+          var opts = bmc.n ? [bmc.n] : (function () { var o = []; for (var v = bmc.min; v <= bmc.max; v++) { o.push(v); } return o; })();
+          out += '<span>' + (ps.bm >= opts[0] ? 'Pay from your BM pool (you have ' + ps.bm + ').' : 'Not enough BM: your pool has ' + ps.bm + '.') + '</span><div class="row">';
+          opts.forEach(function (v) { out += '<button class="btn primary" data-act="pay" data-n="' + v + '"' + (ps.bm < v ? ' disabled' : '') + '>Pay ' + v + ' BM</button>'; });
+        }
+        out += '<button class="btn" data-act="cancel">Cancel</button></div></div>';
+      }
+      return out + '</div>';
+    }
+
+    h += '<div class="ppane"><div class="pcol">' + phaseHtml(P[0]) + phaseHtml(P[1]) + '</div><div class="pcol">' + phaseHtml(P[2]) + phaseHtml(P[3]) + phaseHtml(P[4]);
+    /* command cards */
+    h += '<section class="phase" id="sec-cards">' + secHead(ICON.cards, 'Faction + tactical', 'Command cards', '', '');
+    S.cards.forEach(function (c) {
+      var ex = ps.exh[c.id];
+      h += '<div class="card plain cardrow' + (ex ? ' ab exhausted' : '') + '" style="' + (c.type === 'faction' ? 'border-color:var(--accent)' : '') + '"><div class="row" style="justify-content:space-between;flex-wrap:nowrap">' +
+        '<div class="stack" style="gap:3px;min-width:0"><h3 style="font-size:15px;font-family:var(--display);font-weight:600">' + esc(c.name) + '</h3><span class="muted" style="font-size:12px;line-height:1.4">' +
+        esc([c.type === 'faction' ? 'Faction' : (c.type === 'creep' ? 'Creep card' : null), c.unique ? 'Unique' : null, c.slots ? c.slots : null, c.tag || null].filter(Boolean).join(' · ')) + '</span></div>' +
+        '<span class="mono" style="color:var(--muted)">' + (c.bm ? 'BM ' + c.bm : '') + '</span></div>' +
+        (ex ? '<div class="row" style="justify-content:space-between"><span class="badge exh">' + (ex === 'bm' ? 'EXHAUSTED · SPENT FOR +' + c.bm + ' BM' : 'EXHAUSTED · ABILITY USED') + '</span><button class="btn small" data-act="ready" data-card="' + c.id + '">Ready card</button></div>' : '') +
+        '</div>';
+    });
+    h += '</section></div>';
+    h += '<p class="foot">Summaries are shorthand from the Archon card sheets; your printed cards have the full wording.</p></div>';
+    h += '</div></div>';
+    return h;
+  }
+
+  /* ---------- events ---------- */
+  root.addEventListener('click', function (ev) {
+    var t = ev.target.closest('[data-act]'); if (!t) { return; }
+    var act = t.getAttribute('data-act'), r = route(), a = findArmy(r.id);
+    var ps = a ? playState(a) : null;
+    function setPlay(p) { savePlay(a, p); render(); }
+
+    switch (act) {
+      case 'install':
+        if (installEvt) { installEvt.prompt(); installEvt.userChoice.then(function () { installEvt = null; render(); }); }
+        break;
+      case 'new':
+        var fz = DATA.factions.zerg;
+        var na = { id: uid(), name: 'New army', faction: 'zerg', factionCard: fz.cards.filter(function (c) { return c.type === 'faction'; })[0].id, cards: [], units: [], created: now(), updated: now() };
+        armies.push(na); saveArmies(); go('#/edit/' + na.id);
+        break;
+      case 'import':
+        var ia = decodeArmy(t.getAttribute('data-code'));
+        if (ia) { armies.push(ia); saveArmies(); go('#/edit/' + ia.id); }
+        break;
+      case 'add-unit': ui.adding = true; render(); break;
+      case 'cancel-add': ui.adding = false; render(); break;
+      case 'pick-unit':
+        var d = unitDef(fac(a), t.getAttribute('data-unit'));
+        a.units.push(U(d.id, maxModels(d) <= 3 ? maxModels(d) : minModels(d)));
+        a.updated = now(); ui.adding = false; saveArmies(); render();
+        break;
+      case 'remove-unit':
+        a.units = a.units.filter(function (s) { return s.uid !== t.getAttribute('data-uid'); }); a.updated = now(); saveArmies(); render();
+        break;
+      case 'models':
+        a.units.forEach(function (s) {
+          if (s.uid !== t.getAttribute('data-uid')) { return; }
+          var def = unitDef(fac(a), s.unit);
+          s.models = Math.max(minModels(def), Math.min(maxModels(def), s.models + parseInt(t.getAttribute('data-d'), 10)));
+        });
+        a.updated = now(); saveArmies(); render();
+        break;
+      case 'share':
+        var url = location.origin + location.pathname + '#/import/' + encodeArmy(a);
+        if (navigator.share) {
+          navigator.share({ title: a.name, text: 'My ' + fac(a).name + ' army for TMG Command Sheet', url: url }).catch(function () {});
+        } else if (navigator.clipboard) {
+          navigator.clipboard.writeText(url).then(function () { toast('Army link copied'); }, function () { window.prompt('Copy this link', url); });
+        } else { window.prompt('Copy this link', url); }
+        break;
+      case 'duplicate':
+        var dup = JSON.parse(JSON.stringify(a)); dup.id = uid(); dup.name = a.name + ' (copy)'; dup.created = dup.updated = now();
+        dup.units.forEach(function (s) { s.uid = uid(); });
+        armies.push(dup); saveArmies(); go('#/edit/' + dup.id);
+        break;
+      case 'delete':
+        if (!ui.confirmDelete) { ui.confirmDelete = true; render(); break; }
+        armies = armies.filter(function (x) { return x.id !== a.id; }); saveArmies(); store.del(playKey(a)); go('#/');
+        break;
+      case 'jump':
+        ev.preventDefault();
+        var el = document.getElementById(t.getAttribute('data-to'));
+        if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+        break;
+      case 'focus': ui.focus = t.getAttribute('data-id'); render(); break;
+      case 'bm': ps.bm = Math.max(0, ps.bm + parseInt(t.getAttribute('data-d'), 10)); setPlay(ps); break;
+      case 'readyall': ps.exh = {}; ui.pending = null; setPlay(ps); break;
+      case 'resethp': ps.dmg = {}; setPlay(ps); break;
+      case 'hit':
+      case 'heal':
+        var su = t.getAttribute('data-uid'), sq = null;
+        a.units.forEach(function (s) { if (s.uid === su) { sq = s; } });
+        var max = unitDef(fac(a), sq.unit).hp * sq.models, cur = ps.dmg[su] || 0;
+        ps.dmg[su] = act === 'hit' ? Math.min(max, cur + 1) : Math.max(0, cur - 1);
+        setPlay(ps);
+        break;
+      case 'tap': ui.pending = ui.pending === t.getAttribute('data-key') ? null : t.getAttribute('data-key'); render(); break;
+      case 'cancel': ui.pending = null; render(); break;
+      case 'exhaust':
+        var cid = t.getAttribute('data-card'), mode = t.getAttribute('data-mode'), cdef = cardDef(fac(a), cid);
+        ps.exh[cid] = mode; if (mode === 'bm') { ps.bm += cdef.bm || 0; }
+        ui.pending = null; setPlay(ps);
+        break;
+      case 'ready':
+        var rid = t.getAttribute('data-card'), prev = ps.exh[rid], rdef = cardDef(fac(a), rid);
+        delete ps.exh[rid]; if (prev === 'bm') { ps.bm = Math.max(0, ps.bm - (rdef.bm || 0)); }
+        ui.pending = null; setPlay(ps);
+        break;
+      case 'pay':
+        var n = parseInt(t.getAttribute('data-n'), 10);
+        if (ps.bm >= n) { ps.bm -= n; } ui.pending = null; setPlay(ps);
+        break;
+    }
+  });
+
+  root.addEventListener('input', function (ev) {
+    var t = ev.target; if (t.getAttribute('data-in') !== 'name') { return; }
+    var a = findArmy(route().id); if (!a) { return; }
+    a.name = t.value; a.updated = now(); saveArmies();
+  });
+  root.addEventListener('change', function (ev) {
+    var t = ev.target, kind = t.getAttribute('data-in'); if (!kind || kind === 'name') { return; }
+    var a = findArmy(route().id); if (!a) { return; }
+    if (kind === 'fc') { a.factionCard = t.value; }
+    if (kind === 'card') {
+      var i = a.cards.indexOf(t.value);
+      if (t.checked && i === -1) { a.cards.push(t.value); } else if (!t.checked && i !== -1) { a.cards.splice(i, 1); }
+    }
+    if (kind === 'upg') {
+      a.units.forEach(function (s) {
+        if (s.uid !== t.getAttribute('data-uid')) { return; }
+        var id = t.getAttribute('data-upg'), j = s.upgrades.indexOf(id);
+        if (t.checked && j === -1) { s.upgrades.push(id); } else if (!t.checked && j !== -1) { s.upgrades.splice(j, 1); }
+      });
+    }
+    a.updated = now(); saveArmies(); render();
+  });
+
+  render(true);
+
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+  }
+})();

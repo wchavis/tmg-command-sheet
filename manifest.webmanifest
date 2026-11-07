@@ -1,0 +1,16 @@
+{
+  "name": "TMG Command Sheet",
+  "short_name": "Command Sheet",
+  "description": "Unofficial play aid for the StarCraft Tabletop Miniatures Game.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#140E1B",
+  "theme_color": "#140E1B",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
