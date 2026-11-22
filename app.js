@@ -56,6 +56,8 @@
     return 0;
   }
   function cardShort(c) { return c.short || c.name; }
+  function resCode(a) { var f = fac(a); return (f && f.resource && f.resource.code) || 'BM'; }
+  function unitHp(def, ups) { var hp = def.hp; (def.upgrades || []).forEach(function (u) { if (ups && ups.indexOf(u.id) !== -1 && u.hpMod) { hp += u.hpMod; } }); return hp; }
   function factionTag(a) { var fc = cardDef(fac(a), a.factionCard); return fc ? (fc.tag || null) : null; }
 
   function encodeArmy(a) {
@@ -193,7 +195,7 @@
       if (c.type === 'creep') { creep++; }
       if (c.tag && c.tag !== tag) { out.push(c.name + ' is tagged ' + c.tag + ', but your faction card is ' + fcName + '.'); }
     });
-    if (creep !== 1) { out.push('Zerg Creep: the faction card asks for exactly one Creep card (you have ' + creep + ').'); }
+    if (f.creepRule && creep !== 1) { out.push('Zerg Creep: the faction card asks for exactly one Creep card (you have ' + creep + ').'); }
     return out;
   }
   function armyTotals(a) {
@@ -343,8 +345,9 @@
       h += '<span class="kicker">' + esc(f.name) + '</span>';
       f.sources.forEach(function (s) { h += '<span class="muted" style="font-size:13px">' + esc(s.label) + ': ' + esc(s.version) + '</span>'; });
     });
-    h += '<span class="muted" style="font-size:13px">Terran and Protoss are not in the app yet.</span></div>';
-    h += '<div class="card plain stack"><h3>Loading from a seed</h3><p class="muted" style="font-size:13px;line-height:1.5">Seed import reads the army you saved to the cloud in Archon\'s Command Center. It isn\'t an official feature, so it can stop working if the Command Center changes. Armies you\'ve already loaded stay on your device either way. BM means Biomass.</p></div>';
+    var missing = FACTION_ORDER.filter(function (k) { return !DATA.factions[k]; }).map(function (k) { return FACTION_NAMES[k]; });
+    h += (missing.length ? '<span class="muted" style="font-size:13px">' + esc(missing.join(' and ')) + (missing.length > 1 ? ' are' : ' is') + ' not in the app yet.</span>' : '') + '</div>';
+    h += '<div class="card plain stack"><h3>Loading from a seed</h3><p class="muted" style="font-size:13px;line-height:1.5">Seed import reads the army you saved to the cloud in Archon\'s Command Center. It isn\'t an official feature, so it can stop working if the Command Center changes. Armies you\'ve already loaded stay on your device either way. BM is Zerg Biomass, PE is Protoss Psionic Energy, and CP is the Terran resource.</p></div>';
     h += '<p class="muted mono">App version ' + VERSION + '</p>';
     return h + '</div>';
   }
@@ -369,7 +372,7 @@
   /* ---------- editor ---------- */
   function viewEdit(a) {
     if (!a) { return '<div class="inner"><p class="empty">That army isn\'t on this device. <a href="#/">Go home</a></p></div>'; }
-    var f = fac(a), t = armyTotals(a), warns = armyWarnings(a);
+    var f = fac(a), t = armyTotals(a), warns = armyWarnings(a), RC = resCode(a);
     var h = '<div class="inner">';
     h += '<div class="topbar"><div class="left"><a class="btn small" href="#/">' + ICON.back + ' Armies</a></div><div class="row"><a class="btn primary" href="#/play/' + a.id + '">Play</a></div></div>';
     h += '<div class="field"><label for="armyName">Army name</label><input id="armyName" class="text" data-in="name" value="' + esc(a.name) + '" maxlength="80" autocomplete="off"></div>';
@@ -418,15 +421,15 @@
     h += '<div class="stack">';
     f.cards.filter(function (c) { return c.type === 'faction'; }).forEach(function (c) {
       var on = a.factionCard === c.id;
-      h += '<label class="choice' + (on ? ' on' : '') + '"><input type="radio" name="fc" data-in="fc" value="' + c.id + '"' + (on ? ' checked' : '') + '><span class="c"><span class="n">' + esc(c.name) + '</span><span class="d">Slots: ' + esc(c.slots) + ' · BM ' + c.bm + '</span></span></label>';
+      h += '<label class="choice' + (on ? ' on' : '') + '"><input type="radio" name="fc" data-in="fc" value="' + c.id + '"' + (on ? ' checked' : '') + '><span class="c"><span class="n">' + esc(c.name) + '</span><span class="d">Slots: ' + esc(c.slots) + ' · ' + RC + ' ' + c.bm + '</span></span></label>';
     });
     h += '</div>';
-    ['tactical', 'creep'].forEach(function (type) {
+    ['tactical', 'creep'].filter(function (type) { return f.cards.some(function (c) { return c.type === type; }); }).forEach(function (type) {
       h += secHead(ICON.cards, 'Command cards', type === 'creep' ? 'Creep card' : 'Tactical cards', '', '');
       h += '<div class="grid2">';
       f.cards.filter(function (c) { return c.type === type; }).forEach(function (c) {
         var on = a.cards.indexOf(c.id) !== -1;
-        var d = (c.unique ? 'Unique · ' : '') + (c.slots ? 'Slots: ' + c.slots + ' · ' : '') + (c.bm ? 'BM ' + c.bm + ' · ' : '') + (c.tag ? c.tag + ' · ' : '') +
+        var d = (c.unique ? 'Unique · ' : '') + (c.slots ? 'Slots: ' + c.slots + ' · ' : '') + (c.bm ? RC + ' ' + c.bm + ' · ' : '') + (c.tag ? c.tag + ' · ' : '') +
           c.abilities.filter(function (x) { return x.note !== 'army building' && x.kind !== 'Reminder'; }).map(function (x) { return x.name; }).join(', ');
         h += '<label class="choice' + (on ? ' on' : '') + '"><input type="checkbox" data-in="card" value="' + c.id + '"' + (on ? ' checked' : '') + '><span class="c"><span class="n">' + esc(c.name) + '</span><span class="d">' + esc(d) + '</span></span></label>';
       });
@@ -437,7 +440,7 @@
       '<button class="btn danger" data-act="delete" data-id="' + a.id + '">' + (ui.confirmDelete ? 'Tap again to delete' : 'Delete army') + '</button></div></div>';
     h += '</div></div>';
 
-    h += '<div class="summary"><span class="mono">SUPPLY ' + t.supply + ' · ' + t.units + ' UNITS · ' + t.models + ' MODELS · BM ' + t.bm + '</span>' +
+    h += '<div class="summary"><span class="mono">SUPPLY ' + t.supply + ' · ' + t.units + ' UNITS · ' + t.models + ' MODELS · ' + RC + ' ' + t.bm + '</span>' +
       (warns.length ? '<span class="warn">' + warns.length + (warns.length === 1 ? ' thing' : ' things') + ' to check</span>' : '') +
       '<a class="btn primary" style="margin-left:auto" href="#/play/' + a.id + '">Play</a></div>';
     if (warns.length) {
@@ -491,7 +494,7 @@
     var f = fac(a), sq = squadsOf(a), byUid = {}, dead = {};
     sq.forEach(function (q) {
       byUid[q.s.uid] = q;
-      var max = q.def.hp * q.s.models, d = Math.min(ps.dmg[q.s.uid] || 0, max);
+      var max = unitHp(q.def, q.s.upgrades) * q.s.models, d = Math.min(ps.dmg[q.s.uid] || 0, max);
       if (d >= max) { dead[q.s.uid] = true; }
     });
 
@@ -571,16 +574,16 @@
     return PALETTE[colorIdx[typeId]];
   }
 
-  function parseBM(cost) {
-    var m = /^(\d+)\s*BM$/.exec(cost || ''); if (m) { return { n: parseInt(m[1], 10) }; }
-    var r = /^(\d+)-(\d+)\s*BM$/.exec(cost || ''); if (r) { return { min: parseInt(r[1], 10), max: parseInt(r[2], 10) }; }
+  function parseBM(cost, code) {
+    var m = /^(\d+)\s*([A-Z]{2})$/.exec(cost || ''); if (m && m[2] === code) { return { n: parseInt(m[1], 10) }; }
+    var r = /^(\d+)-(\d+)\s*([A-Z]{2})$/.exec(cost || ''); if (r && r[3] === code) { return { min: parseInt(r[1], 10), max: parseInt(r[2], 10) }; }
     return null;
   }
 
   function viewPlay(a) {
     if (!a) { return '<div class="inner"><p class="empty">That army isn\'t on this device. <a href="#/">Go home</a></p></div>'; }
     colorIdx = {};
-    var ps = playState(a), S = buildSheet(a, ps), t = armyTotals(a), focus = ui.focus;
+    var ps = playState(a), S = buildSheet(a, ps), t = armyTotals(a), focus = ui.focus, RC = resCode(a);
     S.sq.forEach(function (q) { colorFor(q.def.id); });
     var fc = cardDef(S.f, a.factionCard);
 
@@ -599,12 +602,12 @@
     h += '<div class="topbar topline"><div class="left"><a class="btn small" href="#/" aria-label="Back to armies">' + ICON.back + '</a>' +
       '<a class="btn small" href="#/edit/' + a.id + '">Edit</a>' +
       '<div class="titleblock"><span class="kicker">' + esc(S.f.name) + ' · ' + esc(fc ? fc.name : '') + '</span><h1>' + esc(a.name) + '</h1></div></div>' +
-      '<div class="bmbar" aria-label="Biomass and cards"><span class="kicker" style="color:var(--accent-soft)">BM pool</span>' +
-      '<button class="iconbtn" data-act="bm" data-d="-1" aria-label="Remove 1 BM">−</button><span class="val" aria-live="polite">' + ps.bm + '</span>' +
-      '<button class="iconbtn" data-act="bm" data-d="1" aria-label="Add 1 BM">+</button>' +
+      '<div class="bmbar" aria-label="Resource pool and cards"><span class="kicker" style="color:var(--accent-soft)">' + RC + ' pool</span>' +
+      '<button class="iconbtn" data-act="bm" data-d="-1" aria-label="Remove 1 ' + RC + '">−</button><span class="val" aria-live="polite">' + ps.bm + '</span>' +
+      '<button class="iconbtn" data-act="bm" data-d="1" aria-label="Add 1 ' + RC + '">+</button>' +
       '<span class="mono exhcount" style="color:var(--text2)">' + exhCount + '/' + cardTotal + ' CARDS EXHAUSTED</span>' +
       '<button class="btn primary" style="margin-left:auto" data-act="readyall">Ready all cards</button></div></div>';
-    h += '<div class="tiles"><div class="tile"><b>' + t.supply + '</b><span>SUPPLY</span></div><div class="tile"><b>' + t.units + '</b><span>UNITS</span></div><div class="tile"><b>' + t.models + '</b><span>MODELS</span></div><div class="tile"><b>' + t.bm + '</b><span>BM ON CARDS</span></div>' +
+    h += '<div class="tiles"><div class="tile"><b>' + t.supply + '</b><span>SUPPLY</span></div><div class="tile"><b>' + t.units + '</b><span>UNITS</span></div><div class="tile"><b>' + t.models + '</b><span>MODELS</span></div><div class="tile"><b>' + t.bm + '</b><span>' + RC + ' ON CARDS</span></div>' +
       (a.minerals ? '<div class="tile"><b>' + a.minerals.used + '</b><span>MINERALS</span></div>' : '') +
       (a.gas ? '<div class="tile"><b>' + a.gas.used + '</b><span>GAS</span></div>' : '') + '</div>';
 
@@ -627,17 +630,17 @@
     h += '<section id="sec-roster" class="rpane">' + secHead(ICON.list, 'Statlines + health', 'Roster', '', '<button class="btn small" data-act="resethp">Reset HP</button>');
     S.sq.forEach(function (q) {
       var def = q.def, s = q.s, col = colorFor(def.id);
-      var max = def.hp * s.models, d = Math.min(ps.dmg[s.uid] || 0, max), rem = max - d, alive = Math.ceil(rem / def.hp);
+      var hpv = unitHp(def, s.upgrades), max = hpv * s.models, d = Math.min(ps.dmg[s.uid] || 0, max), rem = max - d, alive = Math.ceil(rem / hpv);
       var dim = focus !== 'all' && focus !== def.id;
       h += '<div class="card unit stack' + (dim ? ' dim' : '') + '" style="gap:10px"><div class="head"><div class="stack" style="gap:3px;min-width:0">' +
         '<span class="name" style="color:' + col + '">' + esc(q.name) + '</span><span class="muted" style="font-size:12px">' +
         (def.slot === 'Summoned' ? 'Summoned · ' + s.models + ' models · Supply 0' : esc(def.slot) + ' · ' + s.models + (s.models === 1 ? ' model' : ' models') + ' · Supply ' + supplyFor(def, s.models)) + '</span>' +
         (s.upgrades.length ? '<span class="mono" style="color:var(--upg)">+ ' + esc(s.upgrades.map(function (u) { return upgName(def, u); }).join(', ')) + '</span>' : '') + '</div>' +
         (rem === 0 ? '<span class="badge dead">DESTROYED</span>' : '') + '</div>';
-      h += '<div class="statgrid"><div><b>' + esc(def.speed) + '</b><span>SPEED</span></div><div><b>' + esc(def.armour) + '</b><span>ARMOUR</span></div><div><b>' + esc(def.evade) + '</b><span>EVADE</span></div><div><b>' + def.hp + '</b><span>HIT POINTS</span></div><div><b>' + def.size + '</b><span>SIZE</span></div></div>';
+      h += '<div class="statgrid"><div><b>' + esc(def.speed) + '</b><span>SPEED</span></div><div><b>' + esc(def.armour) + '</b><span>ARMOUR</span></div><div><b>' + esc(def.evade) + '</b><span>EVADE</span></div><div><b>' + hpv + '</b><span>HIT POINTS</span></div><div><b>' + def.size + '</b><span>SIZE</span></div></div>';
       h += '<div class="hp"><div class="segs" aria-hidden="true">';
       for (var i = 0; i < s.models; i++) {
-        var fill = i < alive - 1 ? 1 : (i === alive - 1 ? (rem - def.hp * (alive - 1)) / def.hp : 0);
+        var fill = i < alive - 1 ? 1 : (i === alive - 1 ? (rem - hpv * (alive - 1)) / hpv : 0);
         h += '<i><em style="width:' + Math.round(fill * 100) + '%;background:' + col + '"></em></i>';
       }
       h += '</div><div class="hprow"><button class="hit" data-act="hit" data-uid="' + s.uid + '" aria-label="Deal 1 damage to ' + esc(q.name) + '">−</button><div class="mid">' +
@@ -676,8 +679,8 @@
     }
     function abilityHtml(e) {
       var x = e.x, active = x.kind === 'Active' || x.kind === 'Reaction';
-      var card = e.card || null, cardTap = !!card && active;
-      var bmc = parseBM(x.cost), unitTap = !card && active && bmc && (bmc.n > 0 || bmc.max);
+      var card = e.card || null, cardTap = !!card && active && !x.noExhaust;
+      var bmc = parseBM(x.cost, RC), unitTap = !card && active && bmc && (bmc.n > 0 || bmc.max);
       var exState = card ? ps.exh[card.id] : null, exhausted = cardTap && !!exState;
       var open = ui.pending === e.key && !exhausted;
       var off = isOff(e.owners || [], card);
@@ -686,7 +689,7 @@
       var out = '<div class="' + cls + '" style="gap:6px"><div class="top"><span class="nm">' + esc(x.name) + '</span><span class="tag" style="color:' + e.color + ';border-color:' + e.color + '66">' + esc(e.label) + '</span></div>' +
         '<p>' + esc(x.text) + '</p><div class="row"><span class="meta">▸ ' + esc(meta) + '</span>' +
         (e.upgrade ? '<span class="badge upg">UPGRADE</span>' : '') +
-        (exhausted ? '<span class="badge exh">' + (exState === 'bm' ? 'EXHAUSTED · SPENT FOR BM' : 'EXHAUSTED') + '</span>' : '');
+        (exhausted ? '<span class="badge exh">' + (exState === 'bm' ? 'EXHAUSTED · SPENT FOR ' + RC : 'EXHAUSTED') + '</span>' : '');
       if (cardTap) {
         out += '<button class="btn small act ' + (exhausted ? '' : (open ? 'primary' : 'soft')) + '" data-act="' + (exhausted ? 'ready' : 'tap') + '" data-key="' + e.key + '" data-card="' + card.id + '" aria-expanded="' + open + '">' + (exhausted ? 'Ready card' : 'Use') + '</button>';
       } else if (unitTap) {
@@ -696,13 +699,13 @@
       if (open) {
         out += '<div class="ask">';
         if (cardTap) {
-          out += '<span>' + (card.bm > 0 ? 'Exhaust ' + esc(cardShort(card)) + ': use ' + esc(x.name) + ', or spend the card for ' + card.bm + ' BM?' : 'Exhaust ' + esc(cardShort(card)) + ' to use ' + esc(x.name) + '?') + '</span><div class="row">' +
+          out += '<span>' + (card.bm > 0 ? 'Exhaust ' + esc(cardShort(card)) + ': use ' + esc(x.name) + ', or spend the card for ' + card.bm + ' ' + RC + '?' : 'Exhaust ' + esc(cardShort(card)) + ' to use ' + esc(x.name) + '?') + '</span><div class="row">' +
             '<button class="btn primary" data-act="exhaust" data-card="' + card.id + '" data-mode="ability">Use ' + esc(x.name) + '</button>' +
-            (card.bm > 0 ? '<button class="btn" style="color:var(--good);border-color:rgba(95,207,184,.6)" data-act="exhaust" data-card="' + card.id + '" data-mode="bm">Spend for +' + card.bm + ' BM</button>' : '');
+            (card.bm > 0 ? '<button class="btn" style="color:var(--good);border-color:rgba(95,207,184,.6)" data-act="exhaust" data-card="' + card.id + '" data-mode="bm">Spend for +' + card.bm + ' ' + RC + '</button>' : '');
         } else {
           var opts = bmc.n ? [bmc.n] : (function () { var o = []; for (var v = bmc.min; v <= bmc.max; v++) { o.push(v); } return o; })();
-          out += '<span>' + (ps.bm >= opts[0] ? 'Pay from your BM pool (you have ' + ps.bm + ').' : 'Not enough BM: your pool has ' + ps.bm + '.') + '</span><div class="row">';
-          opts.forEach(function (v) { out += '<button class="btn primary" data-act="pay" data-n="' + v + '"' + (ps.bm < v ? ' disabled' : '') + '>Pay ' + v + ' BM</button>'; });
+          out += '<span>' + (ps.bm >= opts[0] ? 'Pay from your ' + RC + ' pool (you have ' + ps.bm + ').' : 'Not enough ' + RC + ': your pool has ' + ps.bm + '.') + '</span><div class="row">';
+          opts.forEach(function (v) { out += '<button class="btn primary" data-act="pay" data-n="' + v + '"' + (ps.bm < v ? ' disabled' : '') + '>Pay ' + v + ' ' + RC + '</button>'; });
         }
         out += '<button class="btn" data-act="cancel">Cancel</button></div></div>';
       }
@@ -717,8 +720,8 @@
       h += '<div class="card plain cardrow' + (ex ? ' ab exhausted' : '') + '" style="' + (c.type === 'faction' ? 'border-color:var(--accent)' : '') + '"><div class="row" style="justify-content:space-between;flex-wrap:nowrap">' +
         '<div class="stack" style="gap:3px;min-width:0"><h3 style="font-size:15px;font-family:var(--display);font-weight:600">' + esc(c.name) + '</h3><span class="muted" style="font-size:12px;line-height:1.4">' +
         esc([c.type === 'faction' ? 'Faction' : (c.type === 'creep' ? 'Creep card' : null), c.unique ? 'Unique' : null, c.slots ? c.slots : null, c.tag || null].filter(Boolean).join(' · ')) + '</span></div>' +
-        '<span class="mono" style="color:var(--muted)">' + (c.bm ? 'BM ' + c.bm : '') + '</span></div>' +
-        (ex ? '<div class="row" style="justify-content:space-between"><span class="badge exh">' + (ex === 'bm' ? 'EXHAUSTED · SPENT FOR +' + c.bm + ' BM' : 'EXHAUSTED · ABILITY USED') + '</span><button class="btn small" data-act="ready" data-card="' + c.id + '">Ready card</button></div>' : '') +
+        '<span class="mono" style="color:var(--muted)">' + (c.bm ? RC + ' ' + c.bm : '') + '</span></div>' +
+        (ex ? '<div class="row" style="justify-content:space-between"><span class="badge exh">' + (ex === 'bm' ? 'EXHAUSTED · SPENT FOR +' + c.bm + ' ' + RC : 'EXHAUSTED · ABILITY USED') + '</span><button class="btn small" data-act="ready" data-card="' + c.id + '">Ready card</button></div>' : '') +
         '</div>';
     });
     h += '</section></div>';
@@ -798,7 +801,7 @@
       case 'heal':
         var su = t.getAttribute('data-uid'), sq = null;
         a.units.forEach(function (s) { if (s.uid === su) { sq = s; } });
-        var max = unitDef(fac(a), sq.unit).hp * sq.models, cur = ps.dmg[su] || 0;
+        var max = unitHp(unitDef(fac(a), sq.unit), sq.upgrades) * sq.models, cur = ps.dmg[su] || 0;
         ps.dmg[su] = act === 'hit' ? Math.min(max, cur + 1) : Math.max(0, cur - 1);
         setPlay(ps);
         break;

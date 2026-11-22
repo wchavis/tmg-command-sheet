@@ -1,7 +1,7 @@
 /* Network first so card updates show up as soon as you're online; cached copy when offline. */
-var CACHE = 'tmg-command-sheet-v3';
+var CACHE = 'tmg-command-sheet-v4';
 var CORE = [
-  './', 'index.html', 'app.css', 'app.js', 'data/zerg.js', 'manifest.webmanifest',
+  './', 'index.html', 'app.css', 'app.js', 'data/zerg.js', 'data/terran.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png',
   'fonts/chakra-petch-latin-500-normal.woff2', 'fonts/chakra-petch-latin-600-normal.woff2', 'fonts/chakra-petch-latin-700-normal.woff2',
   'fonts/ibm-plex-sans-latin-400-normal.woff2', 'fonts/ibm-plex-sans-latin-500-normal.woff2', 'fonts/ibm-plex-mono-latin-500-normal.woff2'

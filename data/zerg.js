@@ -251,6 +251,7 @@
   window.TMG_DATA = window.TMG_DATA || { factions: {} };
   window.TMG_DATA.factions.zerg = {
     id: 'zerg', name: 'Zerg', accent: '#B98CF0', ground: '#140E1B',
+    resource: { code: 'BM', name: 'Biomass' }, creepRule: true,
     theme: { ground: '#140E1B', accent: '#B98CF0', accentRgb: '185,140,240', accentSoft: '#CDB2F5', upg: '#D9C7F2', card: '#D9C7F2', panelSolid: '#1C1426', toastBg: '#2A1F38', blurb: 'Swarm, creep and Biomass' },
     sources: [
       { file: 'StarCraft-Zerg-P2P-Card-Sheets-A4_EN.pdf', label: 'Wave 1 card sheets', version: 'May 2026, v1.0' },
