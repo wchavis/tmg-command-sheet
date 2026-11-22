@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.4.3';
+  var VERSION = '1.4.4';
   var DATA = window.TMG_DATA;
   var root = document.getElementById('app');
 
@@ -592,6 +592,7 @@
     return ws;
   }
 
+  var PHASE_LABEL = { move: 'MOVEMENT', assault: 'ASSAULT', combat: 'COMBAT', score: 'SCORING', any: 'ANY PHASE' };
   var KIND_RANK = { Active: 0, Reaction: 1, Passive: 2, Reminder: 3 };
 
   function buildSheet(a, ps) {
@@ -839,7 +840,12 @@
         '<span class="mono" style="color:var(--muted)">' + (c.bm ? RC + ' ' + c.bm : '') + '</span></div>' +
         (ex ? '<div class="row" style="justify-content:space-between"><span class="badge exh">' + (ex === 'bm' ? 'EXHAUSTED · SPENT FOR +' + c.bm + ' ' + RC : 'EXHAUSTED · ABILITY USED') + '</span><span class="mono" style="color:var(--muted);font-size:11px">TAP TO READY</span></div>' : '') +
         (flippable && !ex && !askOpen ? '<span class="mono" style="color:var(--muted);font-size:11px">TAP TO FLIP</span>' : '') +
-        (askOpen ? '<div class="ask"><span>Flip ' + esc(cardShort(c)) + ': used for an ability' + (c.bm > 0 ? ', or spent for ' + c.bm + ' ' + RC : '') + '?</span><div class="row">' +
+        (askOpen ? '<div class="ask"><div class="cardabs">' + c.abilities.filter(function (x) { return x.kind !== 'Reminder'; }).map(function (x) {
+            return '<div class="cab"><div class="row" style="gap:8px;justify-content:space-between;flex-wrap:nowrap"><b>' + esc(x.name) + '</b><span class="mono" style="color:var(--accent-soft);font-size:11px;white-space:nowrap">' +
+              esc(PHASE_LABEL[x.phase] || '') + ' · ' + esc(x.kind.toUpperCase()) + (x.cost ? ' · ' + esc(x.cost) : '') + '</span></div><p>' + esc(x.text) + '</p>' +
+              (x.note ? '<span class="mono" style="color:var(--muted);font-size:11px">' + esc(x.note.toUpperCase()) + '</span>' : '') + '</div>';
+          }).join('') + '</div>' +
+          '<span>Flip ' + esc(cardShort(c)) + ': used for an ability' + (c.bm > 0 ? ', or spent for ' + c.bm + ' ' + RC : '') + '?</span><div class="row">' +
           '<button class="btn primary" data-act="exhaust" data-card="' + c.id + '" data-mode="ability">Used ability</button>' +
           (c.bm > 0 ? '<button class="btn" style="color:var(--good);border-color:rgba(95,207,184,.6)" data-act="exhaust" data-card="' + c.id + '" data-mode="bm">Spend for +' + c.bm + ' ' + RC + '</button>' : '') +
           '<button class="btn" data-act="cancel">Cancel</button></div></div>' : '') +

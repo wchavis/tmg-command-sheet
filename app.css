@@ -183,3 +183,7 @@ p{margin:0}
 .cardrow.flippable{cursor:pointer;transition:transform .15s}
 .cardrow.flippable:active{transform:scale(.98)}
 .cardrow.exhausted .cardicon{filter:grayscale(1) brightness(.6);transform:rotate(90deg)}
+.cardabs{display:flex;flex-direction:column;gap:8px}
+.cab{display:flex;flex-direction:column;gap:4px;padding:8px 10px;background:rgba(255,255,255,.04);border-left:2px solid rgba(var(--accent-rgb),.6)}
+.cab b{font-family:var(--display);font-weight:600;font-size:15px}
+.cab p{margin:0;font-size:13px;line-height:1.45;color:var(--text2)}
