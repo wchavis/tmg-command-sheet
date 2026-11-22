@@ -343,9 +343,8 @@
       h += '<div class="card plain stack"><div class="row" style="justify-content:space-between"><div class="stack" style="gap:3px"><span class="kicker">Command Center seed</span>' +
         '<span style="font-family:var(--mono);font-size:16px;letter-spacing:.1em">' + esc(a.seed) + '</span>' +
         '<span class="muted" style="font-size:12px">Loaded ' + esc(new Date(a.imported || a.created).toLocaleString()) + (a.minerals ? ' · ' + a.minerals.used + '/' + a.minerals.limit + ' minerals' : '') + (a.gas ? ' · ' + a.gas.used + '/' + a.gas.limit + ' gas' : '') + '</span></div>' +
-        '<button class="btn soft" data-act="seed-update"' + (ui.seedBusy ? ' disabled' : '') + '>' + (ui.seedBusy ? 'Loading…' : 'Update from seed') + '</button></div>' +
-        '<span class="muted" style="font-size:12px;line-height:1.4">Updating replaces this army\'s units and cards with what\'s saved under the seed, and resets its game tracking.</span>' +
-        (ui.seedMsg ? '<span class="warn" role="alert">' + esc(ui.seedMsg) + '</span>' : '') +
+        '</div>' +
+        '<span class="muted" style="font-size:12px;line-height:1.4">Changed the list in the Command Center? Saving there gives it a new seed. Load that one from the home screen.</span>' +
         ((a.skipped || []).length ? '<span class="warn">Not in the app yet, so left out: ' + esc(a.skipped.join(', ')) + '</span>' : '') + '</div>';
     }
 
