@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.3.1';
+  var VERSION = '1.4.0';
   var DATA = window.TMG_DATA;
   var root = document.getElementById('app');
 
@@ -24,7 +24,7 @@
    * Pack file: JSON { name, sounds: { "<key>": ["data:audio/...;base64,...", ...] } }
    * Keys: death:<unitId> · destroyed:<unitId> · select:<unitId> · card:<cardId> · ability:<unitId> · ability:<unitId>:<abilityName>
    * A variant like "Raptor (Zergling)" falls back to the Zergling's sounds. */
-  var SND = { name: '', sounds: {}, cache: {}, on: store.get('tmg-sound-on', true), busy: false };
+  var SND = { name: '', sounds: {}, images: {}, art: {}, cache: {}, on: store.get('tmg-sound-on', true), busy: false };
   function idb(mode, fn) {
     return new Promise(function (res, rej) {
       if (!window.indexedDB) { rej(new Error('no-idb')); return; }
@@ -38,18 +38,40 @@
       };
     });
   }
-  function soundsLoaded() { return Object.keys(SND.sounds).length > 0; }
-  function setPack(p) { SND.name = (p && p.name) || ''; SND.sounds = (p && p.sounds) || {}; SND.cache = {}; }
+  function soundsLoaded() { return Object.keys(SND.sounds).length > 0 || Object.keys(SND.images || {}).length > 0; }
+  function setPack(p) {
+    Object.keys(SND.art || {}).forEach(function (k) { try { URL.revokeObjectURL(SND.art[k]); } catch (e) {} });
+    SND.name = (p && p.name) || ''; SND.sounds = (p && p.sounds) || {}; SND.images = (p && p.images) || {}; SND.cache = {}; SND.art = {};
+  }
+  /* Portraits and icons from the pack: key portrait:<unitId> or icon:<cardId>. Data URLs become blob URLs once. */
+  function artUrl(keys) {
+    var im = SND.images || {};
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i]; if (!k || !im[k]) { continue; }
+      if (!SND.art[k]) {
+        try {
+          var m = /^data:([^;]+);base64,(.*)$/.exec(im[k]), bin = atob(m[2]), u8 = new Uint8Array(bin.length);
+          for (var j = 0; j < bin.length; j++) { u8[j] = bin.charCodeAt(j); }
+          SND.art[k] = URL.createObjectURL(new Blob([u8], { type: m[1] }));
+        } catch (e) { SND.art[k] = im[k]; }
+      }
+      return SND.art[k];
+    }
+    return null;
+  }
+  function unitArt(f, def) { var b = baseUnitId(f, def); return artUrl(['portrait:' + def.id, b ? 'portrait:' + b : null]); }
+  function cardArt(c) { return artUrl(['icon:' + c.id]); }
   idb('readonly', function (st) { return st.get('pack'); }).then(function (p) { if (p) { setPack(p); render(); } }).catch(function () {});
   function loadPackFile(file) {
     SND.busy = true; render();
     file.text().then(function (txt) {
       var p = JSON.parse(txt);
       if (!p || typeof p.sounds !== 'object') { throw new Error('bad'); }
+      p.images = p.images && typeof p.images === 'object' ? p.images : {};
       Object.keys(p.sounds).forEach(function (k) { if (!Array.isArray(p.sounds[k])) { p.sounds[k] = [p.sounds[k]]; } });
       return idb('readwrite', function (st) { return st.put(p, 'pack'); }).then(function () { return p; });
     }).then(function (p) {
-      setPack(p); SND.busy = false; toast('Sound pack loaded: ' + Object.keys(p.sounds).length + ' sounds');
+      setPack(p); SND.busy = false; toast('Pack loaded: ' + Object.keys(p.sounds).length + ' sounds' + (Object.keys(p.images).length ? ', ' + Object.keys(p.images).length + ' portraits and icons' : ''));
     }).catch(function () { SND.busy = false; toast('That file isn\'t a TMG sound pack.'); });
   }
   function removePack() { idb('readwrite', function (st) { return st.delete('pack'); }).catch(function () {}); setPack(null); toast('Sound pack removed'); }
@@ -426,7 +448,7 @@
     h += (missing.length ? '<span class="muted" style="font-size:13px">' + esc(missing.join(' and ')) + (missing.length > 1 ? ' are' : ' is') + ' not in the app yet.</span>' : '') + '</div>';
     h += '<div class="card plain stack"><h3>Loading from a seed</h3><p class="muted" style="font-size:13px;line-height:1.5">Seed import reads the army you saved to the cloud in Archon\'s Command Center. It isn\'t an official feature, so it can stop working if the Command Center changes. Armies you\'ve already loaded stay on your device either way. BM is Zerg Biomass, PE is Protoss Psionic Energy, and CP is the Terran resource.</p></div>';
     h += '<div class="card plain stack" id="sounds"><h3>Sound pack</h3><p class="muted" style="font-size:13px;line-height:1.5">The app has no sounds of its own. Load a sound pack file to hear unit deaths, building cards and hero abilities during a game. The pack stays on this device and is never uploaded or shared.</p>' +
-      (soundsLoaded() ? '<p style="font-size:13px">Loaded: <b>' + esc(SND.name || 'Sound pack') + '</b> · ' + Object.keys(SND.sounds).length + ' sounds</p>' : '<p class="muted" style="font-size:13px">No sound pack loaded.</p>') +
+      (soundsLoaded() ? '<p style="font-size:13px">Loaded: <b>' + esc(SND.name || 'Sound pack') + '</b> · ' + Object.keys(SND.sounds).length + ' sounds' + (Object.keys(SND.images || {}).length ? ' · ' + Object.keys(SND.images).length + ' portraits and icons' : '') + '</p>' : '<p class="muted" style="font-size:13px">No sound pack loaded.</p>') +
       '<div class="row"><label class="btn' + (soundsLoaded() ? '' : ' primary') + '">' + (SND.busy ? 'Loading…' : (soundsLoaded() ? 'Replace sound pack' : 'Load sound pack')) +
       '<input type="file" accept=".json,application/json" data-in="soundpack" style="position:absolute;left:-9999px"></label>' +
       (soundsLoaded() ? '<button class="btn" data-act="sound-toggle">' + (SND.on ? 'Mute sounds' : 'Unmute sounds') + '</button><button class="btn" data-act="sound-remove">Remove pack</button>' : '') + '</div></div>';
@@ -715,7 +737,9 @@
       var def = q.def, s = q.s, col = colorFor(def.id);
       var H = healthOf(def, s.upgrades, s.models, ps.dmg[s.uid]), hpv = H.hpv, max = H.max, rem = H.rem, alive = H.alive;
       var dim = focus !== 'all' && focus !== def.id;
-      h += '<div class="card unit stack' + (dim ? ' dim' : '') + '" data-unitcard="' + def.id + '" style="gap:10px;scroll-margin-top:12px"><div class="head"><div class="stack" style="gap:3px;min-width:0">' +
+      var pic = unitArt(S.f, def);
+      h += '<div class="card unit stack' + (dim ? ' dim' : '') + '" data-unitcard="' + def.id + '" style="gap:10px;scroll-margin-top:12px"><div class="head">' +
+        (pic ? '<img class="portrait' + (rem === 0 ? ' gone' : '') + '" src="' + pic + '" alt="" style="border-color:' + col + '">' : '') + '<div class="stack" style="gap:3px;min-width:0;flex:1">' +
         '<span class="name" style="color:' + col + '">' + esc(q.name) + '</span><span class="muted" style="font-size:12px">' +
         (def.slot === 'Summoned' ? 'Summoned · ' + s.models + ' models · Supply 0' : esc(def.slot) + ' · ' + s.models + (s.models === 1 ? ' model' : ' models') + ' · Supply ' + supplyFor(def, s.models)) + '</span>' +
         (s.upgrades.length ? '<span class="mono" style="color:var(--upg)">+ ' + esc(s.upgrades.map(function (u) { return upgName(def, u); }).join(', ')) + '</span>' : '') + '</div>' +
@@ -770,7 +794,8 @@
       var off = isOff(e.owners || [], card);
       var cls = 'card ab stack' + (exhausted ? ' exhausted' : '') + (open ? ' open' : '') + (off ? ' dim' : (exhausted ? ' half' : ''));
       var meta = [x.kind, x.cost, x.note].filter(Boolean).join(' · ').toUpperCase();
-      var out = '<div class="' + cls + '" style="gap:6px"><div class="top"><span class="nm">' + esc(x.name) + '</span><span class="tag" style="color:' + e.color + ';border-color:' + e.color + '66">' + esc(e.label) + '</span></div>' +
+      var ico = card ? cardArt(card) : null;
+      var out = '<div class="' + cls + '" style="gap:6px"><div class="top"><span class="nm">' + (ico ? '<img class="abicon" src="' + ico + '" alt="">' : '') + esc(x.name) + '</span><span class="tag" style="color:' + e.color + ';border-color:' + e.color + '66">' + esc(e.label) + '</span></div>' +
         '<p>' + esc(x.text) + '</p><div class="row"><span class="meta">▸ ' + esc(meta) + '</span>' +
         (e.upgrade ? '<span class="badge upg">UPGRADE</span>' : '') +
         (exhausted ? '<span class="badge exh">' + (exState === 'bm' ? 'EXHAUSTED · SPENT FOR ' + RC : 'EXHAUSTED') + '</span>' : '');
@@ -802,7 +827,7 @@
     S.cards.forEach(function (c) {
       var ex = ps.exh[c.id];
       h += '<div class="card plain cardrow' + (ex ? ' ab exhausted' : '') + '" style="' + (c.type === 'faction' ? 'border-color:var(--accent)' : '') + '"><div class="row" style="justify-content:space-between;flex-wrap:nowrap">' +
-        '<div class="stack" style="gap:3px;min-width:0"><h3 style="font-size:15px;font-family:var(--display);font-weight:600">' + esc(c.name) + '</h3><span class="muted" style="font-size:12px;line-height:1.4">' +
+        (cardArt(c) ? '<img class="cardicon" src="' + cardArt(c) + '" alt="">' : '') + '<div class="stack" style="gap:3px;min-width:0;flex:1"><h3 style="font-size:15px;font-family:var(--display);font-weight:600">' + esc(c.name) + '</h3><span class="muted" style="font-size:12px;line-height:1.4">' +
         esc([c.type === 'faction' ? 'Faction' : (c.type === 'creep' ? 'Creep card' : null), c.unique ? 'Unique' : null, c.slots ? c.slots : null, c.tag || null].filter(Boolean).join(' · ')) + '</span></div>' +
         '<span class="mono" style="color:var(--muted)">' + (c.bm ? RC + ' ' + c.bm : '') + '</span></div>' +
         (ex ? '<div class="row" style="justify-content:space-between"><span class="badge exh">' + (ex === 'bm' ? 'EXHAUSTED · SPENT FOR +' + c.bm + ' ' + RC : 'EXHAUSTED · ABILITY USED') + '</span><button class="btn small" data-act="ready" data-card="' + c.id + '">Ready card</button></div>' : '') +
