@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.4.4';
+  var VERSION = '1.5.0';
   var DATA = window.TMG_DATA;
   var root = document.getElementById('app');
 
@@ -563,7 +563,7 @@
 
   /* ---------- play: build the sheet ---------- */
   function playKey(a) { return 'tmg-play-' + a.id; }
-  function playState(a) { var p = store.get(playKey(a), null) || {}; return { dmg: p.dmg || {}, exh: p.exh || {}, bm: p.bm || 0, sup: typeof p.sup === 'number' ? p.sup : null }; }
+  function playState(a) { var p = store.get(playKey(a), null) || {}; return { dmg: p.dmg || {}, exh: p.exh || {}, bm: p.bm || 0, sup: typeof p.sup === 'number' ? p.sup : null, vp: p.vp || 0, vpo: p.vpo || 0 }; }
   function savePlay(a, p) { store.set(playKey(a), p); }
 
   function effectiveWeapons(def, ups) {
@@ -714,6 +714,9 @@
       '<button class="iconbtn" data-act="sup" data-d="-1" aria-label="Remove 1 supply">−</button>' +
       '<button class="val supval" data-act="sup-reset" title="Tap to reset to your army\'s supply (' + t.supply + ')" aria-label="Supply ' + (ps.sup === null ? t.supply : ps.sup) + '. Tap to reset to ' + t.supply + '">' + (ps.sup === null ? t.supply : ps.sup) + '</button>' +
       '<button class="iconbtn" data-act="sup" data-d="1" aria-label="Add 1 supply">+</button></span>' +
+      '<span class="supgrp vpgrp"><span class="kicker" style="color:var(--accent-soft)">VP</span>' +
+      '<span class="vpwho">You</span><button class="iconbtn" data-act="vp" data-who="vp" data-d="-1" aria-label="Remove 1 of your VP">−</button><span class="val" aria-live="polite">' + ps.vp + '</span><button class="iconbtn" data-act="vp" data-who="vp" data-d="1" aria-label="Add 1 to your VP">+</button>' +
+      '<span class="vpwho">Opp</span><button class="iconbtn" data-act="vp" data-who="vpo" data-d="-1" aria-label="Remove 1 of opponent VP">−</button><span class="val" aria-live="polite">' + ps.vpo + '</span><button class="iconbtn" data-act="vp" data-who="vpo" data-d="1" aria-label="Add 1 to opponent VP">+</button></span>' +
       '<span class="mono exhcount" style="color:var(--text2)">' + exhCount + '/' + cardTotal + ' CARDS EXHAUSTED</span>' +
       (soundsLoaded() ? '<button class="iconbtn" data-act="sound-toggle" aria-pressed="' + SND.on + '" aria-label="' + (SND.on ? 'Mute sounds' : 'Unmute sounds') + '">' + (SND.on ? '🔊' : '🔇') + '</button>' : '') +
       '<button class="btn primary" style="margin-left:auto" data-act="readyall">Ready all cards</button></div></div>';
@@ -936,6 +939,7 @@
         var sNow = ps.sup === null ? armyTotals(a).supply : ps.sup;
         ps.sup = Math.max(0, sNow + parseInt(t.getAttribute('data-d'), 10)); setPlay(ps);
         break;
+      case 'vp': var who = t.getAttribute('data-who'); ps[who] = Math.max(0, (ps[who] || 0) + parseInt(t.getAttribute('data-d'), 10)); setPlay(ps); break;
       case 'sup-reset': ps.sup = null; setPlay(ps); toast('Supply reset to ' + armyTotals(a).supply); break;
       case 'readyall': ps.exh = {}; ui.pending = null; setPlay(ps); break;
       case 'resethp': ps.dmg = {}; setPlay(ps); break;
