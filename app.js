@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.4.2';
+  var VERSION = '1.4.3';
   var DATA = window.TMG_DATA;
   var root = document.getElementById('app');
 
@@ -830,11 +830,19 @@
     h += '<section class="phase" id="sec-cards">' + secHead(ICON.cards, 'Faction + tactical', 'Command cards', '', '');
     S.cards.forEach(function (c) {
       var ex = ps.exh[c.id];
-      h += '<div class="card plain cardrow' + (ex ? ' ab exhausted' : '') + '" style="' + (c.type === 'faction' ? 'border-color:var(--accent)' : '') + '"><div class="row" style="justify-content:space-between;flex-wrap:nowrap">' +
+      var flippable = c.abilities.some(function (x) { return (x.kind === 'Active' || x.kind === 'Reaction') && !x.noExhaust; });
+      var askOpen = ui.pending === 'flip:' + c.id && !ex;
+      h += '<div class="card plain cardrow' + (flippable ? ' flippable' : '') + (ex ? ' ab exhausted' : '') + '"' + (flippable && !askOpen ? ' data-act="' + (ex ? 'ready' : 'flip') + '" data-card="' + c.id + '" role="button" tabindex="0" aria-label="' + (ex ? 'Ready ' : 'Flip ') + esc(c.name) + '"' : '') +
+        ' style="' + (c.type === 'faction' ? 'border-color:var(--accent)' : '') + '"><div class="row" style="justify-content:space-between;flex-wrap:nowrap">' +
         (cardArt(c) ? '<img class="cardicon" src="' + cardArt(c) + '" alt="">' : '') + '<div class="stack" style="gap:3px;min-width:0;flex:1"><h3 style="font-size:15px;font-family:var(--display);font-weight:600">' + esc(c.name) + '</h3><span class="muted" style="font-size:12px;line-height:1.4">' +
         esc([c.type === 'faction' ? 'Faction' : (c.type === 'creep' ? 'Creep card' : null), c.unique ? 'Unique' : null, c.slots ? c.slots : null, c.tag || null].filter(Boolean).join(' · ')) + '</span></div>' +
         '<span class="mono" style="color:var(--muted)">' + (c.bm ? RC + ' ' + c.bm : '') + '</span></div>' +
-        (ex ? '<div class="row" style="justify-content:space-between"><span class="badge exh">' + (ex === 'bm' ? 'EXHAUSTED · SPENT FOR +' + c.bm + ' ' + RC : 'EXHAUSTED · ABILITY USED') + '</span><button class="btn small" data-act="ready" data-card="' + c.id + '">Ready card</button></div>' : '') +
+        (ex ? '<div class="row" style="justify-content:space-between"><span class="badge exh">' + (ex === 'bm' ? 'EXHAUSTED · SPENT FOR +' + c.bm + ' ' + RC : 'EXHAUSTED · ABILITY USED') + '</span><span class="mono" style="color:var(--muted);font-size:11px">TAP TO READY</span></div>' : '') +
+        (flippable && !ex && !askOpen ? '<span class="mono" style="color:var(--muted);font-size:11px">TAP TO FLIP</span>' : '') +
+        (askOpen ? '<div class="ask"><span>Flip ' + esc(cardShort(c)) + ': used for an ability' + (c.bm > 0 ? ', or spent for ' + c.bm + ' ' + RC : '') + '?</span><div class="row">' +
+          '<button class="btn primary" data-act="exhaust" data-card="' + c.id + '" data-mode="ability">Used ability</button>' +
+          (c.bm > 0 ? '<button class="btn" style="color:var(--good);border-color:rgba(95,207,184,.6)" data-act="exhaust" data-card="' + c.id + '" data-mode="bm">Spend for +' + c.bm + ' ' + RC + '</button>' : '') +
+          '<button class="btn" data-act="cancel">Cancel</button></div></div>' : '') +
         '</div>';
     });
     h += '</section></div>';
@@ -938,6 +946,7 @@
         break;
       case 'tap': ui.pending = ui.pending === t.getAttribute('data-key') ? null : t.getAttribute('data-key'); render(); break;
       case 'cancel': ui.pending = null; render(); break;
+      case 'flip': ui.pending = 'flip:' + t.getAttribute('data-card'); render(); break;
       case 'exhaust':
         var cid = t.getAttribute('data-card'), mode = t.getAttribute('data-mode'), cdef = cardDef(fac(a), cid);
         ps.exh[cid] = mode; if (mode === 'bm') { ps.bm += cdef.bm || 0; }
