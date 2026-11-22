@@ -1,5 +1,5 @@
 /* Network first so card updates show up as soon as you're online; cached copy when offline. */
-var CACHE = 'tmg-command-sheet-v8';
+var CACHE = 'tmg-command-sheet-v9';
 var CORE = [
   './', 'index.html', 'app.css', 'app.js', 'data/zerg.js', 'data/terran.js', 'data/protoss.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png',

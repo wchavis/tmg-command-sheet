@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.4.0';
+  var VERSION = '1.4.1';
   var DATA = window.TMG_DATA;
   var root = document.getElementById('app');
 
@@ -563,7 +563,7 @@
 
   /* ---------- play: build the sheet ---------- */
   function playKey(a) { return 'tmg-play-' + a.id; }
-  function playState(a) { var p = store.get(playKey(a), null) || {}; return { dmg: p.dmg || {}, exh: p.exh || {}, bm: p.bm || 0 }; }
+  function playState(a) { var p = store.get(playKey(a), null) || {}; return { dmg: p.dmg || {}, exh: p.exh || {}, bm: p.bm || 0, sup: typeof p.sup === 'number' ? p.sup : null }; }
   function savePlay(a, p) { store.set(playKey(a), p); }
 
   function effectiveWeapons(def, ups) {
@@ -709,10 +709,14 @@
       '<div class="bmbar" aria-label="Resource pool and cards"><span class="kicker" style="color:var(--accent-soft)">' + RC + ' pool</span>' +
       '<button class="iconbtn" data-act="bm" data-d="-1" aria-label="Remove 1 ' + RC + '">−</button><span class="val" aria-live="polite">' + ps.bm + '</span>' +
       '<button class="iconbtn" data-act="bm" data-d="1" aria-label="Add 1 ' + RC + '">+</button>' +
+      '<span class="supgrp"><span class="kicker" style="color:var(--accent-soft)">Supply</span>' +
+      '<button class="iconbtn" data-act="sup" data-d="-1" aria-label="Remove 1 supply">−</button>' +
+      '<button class="val supval" data-act="sup-reset" title="Tap to reset to your army\'s supply (' + t.supply + ')" aria-label="Supply ' + (ps.sup === null ? t.supply : ps.sup) + '. Tap to reset to ' + t.supply + '">' + (ps.sup === null ? t.supply : ps.sup) + '</button>' +
+      '<button class="iconbtn" data-act="sup" data-d="1" aria-label="Add 1 supply">+</button></span>' +
       '<span class="mono exhcount" style="color:var(--text2)">' + exhCount + '/' + cardTotal + ' CARDS EXHAUSTED</span>' +
       (soundsLoaded() ? '<button class="iconbtn" data-act="sound-toggle" aria-pressed="' + SND.on + '" aria-label="' + (SND.on ? 'Mute sounds' : 'Unmute sounds') + '">' + (SND.on ? '🔊' : '🔇') + '</button>' : '') +
       '<button class="btn primary" style="margin-left:auto" data-act="readyall">Ready all cards</button></div></div>';
-    h += '<div class="tiles"><div class="tile"><b>' + t.supply + '</b><span>SUPPLY</span></div><div class="tile"><b>' + t.units + '</b><span>UNITS</span></div><div class="tile"><b>' + t.models + '</b><span>MODELS</span></div><div class="tile"><b>' + t.bm + '</b><span>' + RC + ' ON CARDS</span></div>' +
+    h += '<div class="tiles"><div class="tile"><b>' + t.supply + '</b><span>ARMY SUPPLY</span></div><div class="tile"><b>' + t.units + '</b><span>UNITS</span></div><div class="tile"><b>' + t.models + '</b><span>MODELS</span></div><div class="tile"><b>' + t.bm + '</b><span>' + RC + ' ON CARDS</span></div>' +
       (a.minerals ? '<div class="tile"><b>' + a.minerals.used + '</b><span>MINERALS</span></div>' : '') +
       (a.gas ? '<div class="tile"><b>' + a.gas.used + '</b><span>GAS</span></div>' : '') + '</div>';
 
@@ -914,6 +918,11 @@
         }
         break;
       case 'bm': ps.bm = Math.max(0, ps.bm + parseInt(t.getAttribute('data-d'), 10)); setPlay(ps); break;
+      case 'sup':
+        var sNow = ps.sup === null ? armyTotals(a).supply : ps.sup;
+        ps.sup = Math.max(0, sNow + parseInt(t.getAttribute('data-d'), 10)); setPlay(ps);
+        break;
+      case 'sup-reset': ps.sup = null; setPlay(ps); toast('Supply reset to ' + armyTotals(a).supply); break;
       case 'readyall': ps.exh = {}; ui.pending = null; setPlay(ps); break;
       case 'resethp': ps.dmg = {}; setPlay(ps); break;
       case 'hit':
