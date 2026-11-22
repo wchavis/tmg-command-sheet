@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.1.0';
+  var VERSION = '1.2.0';
   var DATA = window.TMG_DATA;
   var root = document.getElementById('app');
 
@@ -58,6 +58,13 @@
   function cardShort(c) { return c.short || c.name; }
   function resCode(a) { var f = fac(a); return (f && f.resource && f.resource.code) || 'BM'; }
   function unitHp(def, ups) { var hp = def.hp; (def.upgrades || []).forEach(function (u) { if (ups && ups.indexOf(u.id) !== -1 && u.hpMod) { hp += u.hpMod; } }); return hp; }
+  /* Shields add to the first model's HP. Models: all alive until damage reaches hp + shield, then hp each. */
+  function unitMax(def, ups, models) { return unitHp(def, ups) * models + (def.shield || 0); }
+  function healthOf(def, ups, models, dmg) {
+    var hpv = unitHp(def, ups), sh = def.shield || 0, max = hpv * models + sh, d = Math.min(dmg || 0, max), rem = max - d;
+    var body = hpv * models - Math.max(0, d - sh);
+    return { hpv: hpv, sh: sh, max: max, d: d, rem: rem, shLeft: Math.max(0, sh - d), shielded: sh > 0 && d <= sh, body: body, alive: Math.min(models, Math.ceil(body / hpv)) };
+  }
   function factionTag(a) { var fc = cardDef(fac(a), a.factionCard); return fc ? (fc.tag || null) : null; }
 
   function encodeArmy(a) {
@@ -112,8 +119,9 @@
     if (!f) { throw { kind: 'faction', name: s.faction || 'That faction' }; }
     var skipped = [];
     function findUnit(u) {
-      var a = norm(u.id), b = norm(u.name);
+      var a = norm(u.id), b = norm(u.name), strip = function (x) { return norm(String(x || '').replace(/\(.*?\)/g, '')); };
       for (var i = 0; i < f.units.length; i++) { var d = f.units[i]; if (norm(d.id) === a || norm(d.name) === a || norm(d.name) === b) { return d; } }
+      for (var j = 0; j < f.units.length; j++) { var e = f.units[j]; if (strip(e.name) === strip(u.name) || strip(e.name) === a) { return e; } }
       return null;
     }
     function findCard(id) {
@@ -188,6 +196,12 @@
     squadsOf(a).forEach(function (q) {
       if (q.def.tag && q.def.tag !== tag) { out.push(q.def.name + ' is tagged ' + q.def.tag + ', but your faction card is ' + fcName + '.'); }
       if (q.def.unique) { uniq[q.def.id] = (uniq[q.def.id] || 0) + 1; if (uniq[q.def.id] === 2) { out.push(q.def.name + ' is Unique but appears more than once.'); } }
+    });
+    var ids = squadsOf(a).map(function (q) { return q.def.id; }), shown = {};
+    squadsOf(a).forEach(function (q) {
+      (q.def.excludes || []).forEach(function (x) {
+        if (ids.indexOf(x) !== -1 && !shown[x + q.def.id]) { shown[q.def.id + x] = true; out.push(q.def.name + ' and ' + unitDef(f, x).name + ' can\'t be in the same army.'); }
+      });
     });
     var creep = 0;
     a.cards.forEach(function (id) {
@@ -494,7 +508,7 @@
     var f = fac(a), sq = squadsOf(a), byUid = {}, dead = {};
     sq.forEach(function (q) {
       byUid[q.s.uid] = q;
-      var max = unitHp(q.def, q.s.upgrades) * q.s.models, d = Math.min(ps.dmg[q.s.uid] || 0, max);
+      var max = unitMax(q.def, q.s.upgrades, q.s.models), d = Math.min(ps.dmg[q.s.uid] || 0, max);
       if (d >= max) { dead[q.s.uid] = true; }
     });
 
@@ -630,17 +644,18 @@
     h += '<section id="sec-roster" class="rpane">' + secHead(ICON.list, 'Statlines + health', 'Roster', '', '<button class="btn small" data-act="resethp">Reset HP</button>');
     S.sq.forEach(function (q) {
       var def = q.def, s = q.s, col = colorFor(def.id);
-      var hpv = unitHp(def, s.upgrades), max = hpv * s.models, d = Math.min(ps.dmg[s.uid] || 0, max), rem = max - d, alive = Math.ceil(rem / hpv);
+      var H = healthOf(def, s.upgrades, s.models, ps.dmg[s.uid]), hpv = H.hpv, max = H.max, rem = H.rem, alive = H.alive;
       var dim = focus !== 'all' && focus !== def.id;
       h += '<div class="card unit stack' + (dim ? ' dim' : '') + '" style="gap:10px"><div class="head"><div class="stack" style="gap:3px;min-width:0">' +
         '<span class="name" style="color:' + col + '">' + esc(q.name) + '</span><span class="muted" style="font-size:12px">' +
         (def.slot === 'Summoned' ? 'Summoned · ' + s.models + ' models · Supply 0' : esc(def.slot) + ' · ' + s.models + (s.models === 1 ? ' model' : ' models') + ' · Supply ' + supplyFor(def, s.models)) + '</span>' +
         (s.upgrades.length ? '<span class="mono" style="color:var(--upg)">+ ' + esc(s.upgrades.map(function (u) { return upgName(def, u); }).join(', ')) + '</span>' : '') + '</div>' +
-        (rem === 0 ? '<span class="badge dead">DESTROYED</span>' : '') + '</div>';
-      h += '<div class="statgrid"><div><b>' + esc(def.speed) + '</b><span>SPEED</span></div><div><b>' + esc(def.armour) + '</b><span>ARMOUR</span></div><div><b>' + esc(def.evade) + '</b><span>EVADE</span></div><div><b>' + hpv + '</b><span>HIT POINTS</span></div><div><b>' + def.size + '</b><span>SIZE</span></div></div>';
+        (rem === 0 ? '<span class="badge dead">DESTROYED</span>' : (H.shielded ? '<span class="badge shield">SHIELDED</span>' : '')) + '</div>';
+      h += '<div class="statgrid' + (H.sh ? ' six' : '') + '">' + (H.sh ? '<div><b>' + H.sh + '</b><span>SHIELD</span></div>' : '') + '<div><b>' + esc(def.speed) + '</b><span>SPEED</span></div><div><b>' + esc(def.armour) + '</b><span>ARMOUR</span></div><div><b>' + esc(def.evade) + '</b><span>EVADE</span></div><div><b>' + hpv + '</b><span>HIT POINTS</span></div><div><b>' + def.size + '</b><span>SIZE</span></div></div>';
       h += '<div class="hp"><div class="segs" aria-hidden="true">';
+      if (H.sh) { h += '<i class="sh"><em style="width:' + Math.round(H.shLeft / H.sh * 100) + '%"></em></i>'; }
       for (var i = 0; i < s.models; i++) {
-        var fill = i < alive - 1 ? 1 : (i === alive - 1 ? (rem - hpv * (alive - 1)) / hpv : 0);
+        var fill = i < alive - 1 ? 1 : (i === alive - 1 ? (H.body - hpv * (alive - 1)) / hpv : 0);
         h += '<i><em style="width:' + Math.round(fill * 100) + '%;background:' + col + '"></em></i>';
       }
       h += '</div><div class="hprow"><button class="hit" data-act="hit" data-uid="' + s.uid + '" aria-label="Deal 1 damage to ' + esc(q.name) + '">−</button><div class="mid">' +
@@ -801,7 +816,7 @@
       case 'heal':
         var su = t.getAttribute('data-uid'), sq = null;
         a.units.forEach(function (s) { if (s.uid === su) { sq = s; } });
-        var max = unitHp(unitDef(fac(a), sq.unit), sq.upgrades) * sq.models, cur = ps.dmg[su] || 0;
+        var max = unitMax(unitDef(fac(a), sq.unit), sq.upgrades, sq.models), cur = ps.dmg[su] || 0;
         ps.dmg[su] = act === 'hit' ? Math.min(max, cur + 1) : Math.max(0, cur - 1);
         setPlay(ps);
         break;
