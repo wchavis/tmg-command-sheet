@@ -220,9 +220,32 @@
     ui.toastTimer = setTimeout(function () { ui.toast = ''; render(); }, 2600);
   }
 
+  /* ---------- faction themes ---------- */
+  var FACTION_ORDER = ['terran', 'zerg', 'protoss'];
+  var FACTION_NAMES = { terran: 'Terran', zerg: 'Zerg', protoss: 'Protoss' };
+  var THEME_FALLBACK = {
+    terran: { ground: '#0F1317', accent: '#F28C28', accentRgb: '242,140,40', accentSoft: '#F7B26B', upg: '#F6D2A8', card: '#F6D2A8', panelSolid: '#1A2027', toastBg: '#26303A', blurb: 'Infantry, armour and orders' },
+    zerg: { ground: '#140E1B', accent: '#B98CF0', accentRgb: '185,140,240', accentSoft: '#CDB2F5', upg: '#D9C7F2', card: '#D9C7F2', panelSolid: '#1C1426', toastBg: '#2A1F38', blurb: 'Swarm, creep and Biomass' },
+    protoss: { ground: '#0B1322', accent: '#EBC04F', accentRgb: '235,192,79', accentSoft: '#F2D488', upg: '#A9D1FF', card: '#A9D1FF', panelSolid: '#121D31', toastBg: '#1B2944', blurb: 'Shields, psionics and warp' }
+  };
+  function themeFor(k) { var f = DATA.factions[k]; return (f && f.theme) || THEME_FALLBACK[k] || THEME_FALLBACK.zerg; }
+  var currentTheme = null;
+  function applyTheme(k) {
+    if (currentTheme === k) { return; }
+    currentTheme = k;
+    var t = themeFor(k), s = document.documentElement.style;
+    s.setProperty('--ground', t.ground); s.setProperty('--accent', t.accent); s.setProperty('--accent-rgb', t.accentRgb);
+    s.setProperty('--accent-soft', t.accentSoft); s.setProperty('--upg', t.upg); s.setProperty('--card', t.card);
+    s.setProperty('--panel-solid', t.panelSolid); s.setProperty('--toast-bg', t.toastBg);
+    document.documentElement.setAttribute('data-faction', k);
+    var meta = document.querySelector('meta[name=theme-color]'); if (meta) { meta.setAttribute('content', t.ground); }
+  }
+
   /* ---------- render ---------- */
   function render(routeChanged) {
     var r = route();
+    var ra = (r.name === 'play' || r.name === 'edit') ? findArmy(r.id) : null;
+    applyTheme(ra ? ra.faction : 'zerg');
     var keepScroll = !routeChanged && ui.lastRoute === r.name + '/' + r.id;
     var winY = window.scrollY;
     var rp = root.querySelector('.rpane'), pp = root.querySelector('.ppane');
@@ -273,20 +296,31 @@
       '<div class="row">' + (installEvt ? '<button class="btn soft" data-act="install">Install app</button>' : '') +
       '<a class="btn" href="#/about">About</a></div></div>';
     h += '<p class="muted" style="font-size:14px;line-height:1.5;max-width:720px">Build an army from your Command Center roster, then play from one screen: abilities and weapons sorted by phase, health and model counts, exhausted cards and your BM pool.</p>';
-    h += '<div class="row" style="align-items:stretch"><button class="btn primary" data-act="new">New army</button>' +
+    h += '<div class="row" style="align-items:stretch"><button class="btn primary" data-act="new" aria-expanded="' + !!ui.pickFaction + '">New army</button>' +
       '<form class="row" data-form="seed" style="gap:8px;flex-wrap:nowrap" autocomplete="off">' +
       '<label for="seedInput" class="label" style="position:absolute;left:-9999px">Command Center seed</label>' +
       '<input id="seedInput" class="text" data-in="seed" value="' + esc(ui.seedValue || '') + '" placeholder="SEED ID" maxlength="10" autocapitalize="characters" spellcheck="false" style="width:130px;text-transform:uppercase;font-family:var(--mono);letter-spacing:.1em">' +
       '<button class="btn soft" type="submit"' + (ui.seedBusy ? ' disabled' : '') + '>' + (ui.seedBusy ? 'Loading…' : 'Load from seed') + '</button></form></div>';
     h += '<p class="muted" style="font-size:12px;line-height:1.5;max-width:720px">Saved an army to the cloud in the Command Center? Enter its seed to bring it in with units, model counts, upgrades and cards.</p>';
     if (ui.seedMsg) { h += '<p class="warn" role="alert">' + esc(ui.seedMsg) + '</p>'; }
+    if (ui.pickFaction) {
+      h += '<div class="card plain stack"><div class="row" style="justify-content:space-between"><h3>Pick a faction</h3><button class="btn small" data-act="cancel-new">Cancel</button></div><div class="picker">';
+      FACTION_ORDER.forEach(function (k) {
+        var f = DATA.factions[k], th = themeFor(k), ready = !!f;
+        h += '<button class="pick" data-act="new-faction" data-faction="' + k + '"' + (ready ? '' : ' disabled') +
+          ' style="background:' + th.ground + ';border-color:' + th.accent + ';border-top-width:3px">' +
+          '<span class="n" style="color:' + th.accent + '">' + esc(FACTION_NAMES[k]) + '</span>' +
+          '<span class="d">' + (ready ? esc(th.blurb || '') : 'Coming soon') + '</span></button>';
+      });
+      h += '</div></div>';
+    }
     if (!armies.length) {
       h += '<p class="empty">No armies yet. Tap New army to build one.</p>';
     } else {
       h += '<div class="armylist">';
       armies.slice().sort(function (x, y) { return (y.updated || 0) - (x.updated || 0); }).forEach(function (a) {
-        var f = fac(a), t = armyTotals(a), fc = cardDef(f, a.factionCard);
-        h += '<div class="card army"><div class="stack" style="gap:4px"><span class="kicker">' + esc(f.name) + ' · ' + esc(fc ? fc.name : '') + '</span>' +
+        var f = fac(a), t = armyTotals(a), fc = cardDef(f, a.factionCard), th = themeFor(a.faction);
+        h += '<div class="card army" style="border-top:2px solid ' + th.accent + '"><div class="stack" style="gap:4px"><span class="kicker" style="color:' + th.accent + '">' + esc(f.name) + ' · ' + esc(fc ? fc.name : '') + '</span>' +
           '<h3 style="font-size:18px">' + esc(a.name) + '</h3><span class="meta">' + t.units + ' units · ' + t.models + ' models · Supply ' + t.supply + ' · ' + a.cards.length + ' cards' + (a.seed ? ' · seed ' + esc(a.seed) : '') + '</span></div>' +
           '<div class="row"><a class="btn primary" href="#/play/' + a.id + '">Play</a><a class="btn" href="#/edit/' + a.id + '">Edit</a></div></div>';
       });
@@ -520,7 +554,7 @@
       var c = cardDef(f, id); if (!c) { return; }
       c.abilities.forEach(function (x, i) {
         if (x.note === 'army building') { return; }
-        phases[x.phase].push({ key: 'c-' + c.id + '-' + i, x: x, card: c, label: cardShort(c), color: '#D9C7F2' });
+        phases[x.phase].push({ key: 'c-' + c.id + '-' + i, x: x, card: c, label: cardShort(c), color: themeFor(a.faction).card });
       });
     });
 
@@ -578,10 +612,10 @@
     h += '<div class="tools"><nav class="jnav" aria-label="Jump to section">' + jumps.map(function (j) { return '<a href="#" data-act="jump" data-to="' + j[2] + '"><span>' + j[0] + '</span><span>' + j[1] + '</span></a>'; }).join('') + '</nav>';
     var types = []; S.sq.forEach(function (q) { if (types.indexOf(q.def.id) === -1) { types.push(q.def.id); } });
     h += '<section class="chips" aria-label="Focus"><span class="kicker" style="color:var(--muted);flex-shrink:0">Focus</span>';
-    var chipDefs = [{ id: 'all', label: 'All', color: '#B98CF0', n: 0 }].concat(types.map(function (tid) {
+    var chipDefs = [{ id: 'all', label: 'All', color: themeFor(a.faction).accent, n: 0 }].concat(types.map(function (tid) {
       var all = S.sq.filter(function (q) { return q.def.id === tid; }), def = all[0].def;
       return { id: tid, label: all.length > 1 || maxModels(def) > 1 ? plural(shortName(def)) : shortName(def), color: colorFor(tid), n: all.length };
-    })).concat([{ id: 'cards', label: 'Cards', color: '#D9C7F2', n: 0 }]);
+    })).concat([{ id: 'cards', label: 'Cards', color: themeFor(a.faction).card, n: 0 }]);
     chipDefs.forEach(function (c) {
       var on = focus === c.id;
       h += '<button data-act="focus" data-id="' + c.id + '" aria-pressed="' + on + '" style="background:' + (on ? c.color : 'transparent') + ';color:' + (on ? '#0F1317' : c.color) + ';border-color:' + (on ? c.color : 'rgba(255,255,255,.2)') + '">' + esc(c.label) + (c.n > 1 ? '<small>×' + c.n + '</small>' : '') + '</button>';
@@ -704,10 +738,12 @@
       case 'install':
         if (installEvt) { installEvt.prompt(); installEvt.userChoice.then(function () { installEvt = null; render(); }); }
         break;
-      case 'new':
-        var fz = DATA.factions.zerg;
-        var na = { id: uid(), name: 'New army', faction: 'zerg', factionCard: fz.cards.filter(function (c) { return c.type === 'faction'; })[0].id, cards: [], units: [], created: now(), updated: now() };
-        armies.push(na); saveArmies(); go('#/edit/' + na.id);
+      case 'new': ui.pickFaction = !ui.pickFaction; render(); break;
+      case 'cancel-new': ui.pickFaction = false; render(); break;
+      case 'new-faction':
+        var fk = t.getAttribute('data-faction'), fz = DATA.factions[fk]; if (!fz) { break; }
+        var na = { id: uid(), name: 'New ' + fz.name + ' army', faction: fk, factionCard: fz.cards.filter(function (c) { return c.type === 'faction'; })[0].id, cards: [], units: [], created: now(), updated: now() };
+        ui.pickFaction = false; armies.push(na); saveArmies(); go('#/edit/' + na.id);
         break;
       case 'import':
         var ia = decodeArmy(t.getAttribute('data-code'));
