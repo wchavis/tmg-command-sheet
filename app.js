@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.3.0';
+  var VERSION = '1.3.1';
   var DATA = window.TMG_DATA;
   var root = document.getElementById('app');
 
@@ -346,6 +346,7 @@
       rp = root.querySelector('.rpane'); pp = root.querySelector('.ppane');
       if (rp) { rp.scrollTop = rpY; } if (pp) { pp.scrollTop = ppY; }
     } else { window.scrollTo(0, 0); }
+    if (routeChanged && r.name === 'about' && r.id === 'sounds') { var sc = document.getElementById('sounds'); if (sc) { sc.scrollIntoView({ block: 'start' }); } }
   }
 
   var ICON = {
@@ -372,7 +373,7 @@
     var h = '<div class="inner">';
     h += '<div class="topbar"><div class="titleblock"><span class="kicker">Unofficial play aid · StarCraft TMG</span><h1>TMG Command Sheet</h1></div>' +
       '<div class="row">' + (installEvt ? '<button class="btn soft" data-act="install">Install app</button>' : '') +
-      '<a class="btn" href="#/about">About</a></div></div>';
+      '<a class="btn" href="#/about/sounds">' + (soundsLoaded() ? (SND.on ? '🔊 Sounds' : '🔇 Sounds') : 'Sounds') + '</a><a class="btn" href="#/about">About</a></div></div>';
     h += '<p class="muted" style="font-size:14px;line-height:1.5;max-width:720px">Build an army from your Command Center roster, then play from one screen: abilities and weapons sorted by phase, health and model counts, exhausted cards and your BM pool.</p>';
     h += '<div class="row" style="align-items:stretch"><button class="btn primary" data-act="new" aria-expanded="' + !!ui.pickFaction + '">New army</button>' +
       '<form class="row" data-form="seed" style="gap:8px;flex-wrap:nowrap" autocomplete="off">' +
