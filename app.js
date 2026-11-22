@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.2.0';
+  var VERSION = '1.3.0';
   var DATA = window.TMG_DATA;
   var root = document.getElementById('app');
 
@@ -19,6 +19,68 @@
   function now() { return Date.now(); }
   function saveArmies() { store.set(KEY_ARMIES, armies); }
   function findArmy(id) { for (var i = 0; i < armies.length; i++) { if (armies[i].id === id) { return armies[i]; } } return null; }
+
+  /* ---------- optional sound pack (kept on this device only; the app ships no audio) ----------
+   * Pack file: JSON { name, sounds: { "<key>": ["data:audio/...;base64,...", ...] } }
+   * Keys: death:<unitId> · destroyed:<unitId> · select:<unitId> · card:<cardId> · ability:<unitId> · ability:<unitId>:<abilityName>
+   * A variant like "Raptor (Zergling)" falls back to the Zergling's sounds. */
+  var SND = { name: '', sounds: {}, cache: {}, on: store.get('tmg-sound-on', true), busy: false };
+  function idb(mode, fn) {
+    return new Promise(function (res, rej) {
+      if (!window.indexedDB) { rej(new Error('no-idb')); return; }
+      var rq = indexedDB.open('tmg-sounds', 1);
+      rq.onupgradeneeded = function () { rq.result.createObjectStore('pack'); };
+      rq.onerror = function () { rej(rq.error); };
+      rq.onsuccess = function () {
+        var db = rq.result, tx = db.transaction('pack', mode), st = tx.objectStore('pack'), out = fn(st);
+        tx.oncomplete = function () { db.close(); res(out && out.result); };
+        tx.onerror = function () { db.close(); rej(tx.error); };
+      };
+    });
+  }
+  function soundsLoaded() { return Object.keys(SND.sounds).length > 0; }
+  function setPack(p) { SND.name = (p && p.name) || ''; SND.sounds = (p && p.sounds) || {}; SND.cache = {}; }
+  idb('readonly', function (st) { return st.get('pack'); }).then(function (p) { if (p) { setPack(p); render(); } }).catch(function () {});
+  function loadPackFile(file) {
+    SND.busy = true; render();
+    file.text().then(function (txt) {
+      var p = JSON.parse(txt);
+      if (!p || typeof p.sounds !== 'object') { throw new Error('bad'); }
+      Object.keys(p.sounds).forEach(function (k) { if (!Array.isArray(p.sounds[k])) { p.sounds[k] = [p.sounds[k]]; } });
+      return idb('readwrite', function (st) { return st.put(p, 'pack'); }).then(function () { return p; });
+    }).then(function (p) {
+      setPack(p); SND.busy = false; toast('Sound pack loaded: ' + Object.keys(p.sounds).length + ' sounds');
+    }).catch(function () { SND.busy = false; toast('That file isn\'t a TMG sound pack.'); });
+  }
+  function removePack() { idb('readwrite', function (st) { return st.delete('pack'); }).catch(function () {}); setPack(null); toast('Sound pack removed'); }
+  function playKeyed(keys) {
+    if (!SND.on || !soundsLoaded()) { return false; }
+    for (var i = 0; i < keys.length; i++) {
+      var list = SND.sounds[keys[i]];
+      if (list && list.length) {
+        var j = Math.floor(Math.random() * list.length), ck = keys[i] + '#' + j;
+        var au = SND.cache[ck] || (SND.cache[ck] = new Audio(list[j]));
+        try { au.currentTime = 0; var pr = au.play(); if (pr && pr.catch) { pr.catch(function () {}); } } catch (e) {}
+        return true;
+      }
+    }
+    return false;
+  }
+  function baseUnitId(f, def) {
+    var m = /\(([^)]+)\)\s*$/.exec(def.name || ''); if (!m) { return null; }
+    var n = norm(m[1]), hit = f.units.filter(function (u) { return norm(u.name) === n; })[0];
+    return hit ? hit.id : null;
+  }
+  function soundDeath(f, def, destroyed) {
+    var b = baseUnitId(f, def), keys = [];
+    if (destroyed) { keys.push('destroyed:' + def.id); if (b) { keys.push('destroyed:' + b); } }
+    keys.push('death:' + def.id); if (b) { keys.push('death:' + b); }
+    playKeyed(keys);
+  }
+  function soundAbility(f, def, abName) {
+    var b = baseUnitId(f, def), n = norm(abName);
+    playKeyed(['ability:' + def.id + ':' + n, 'ability:' + def.id].concat(b ? ['ability:' + b + ':' + n, 'ability:' + b] : []));
+  }
 
   function U(unit, models, upgrades) { return { uid: uid(), unit: unit, models: models, upgrades: upgrades || [] }; }
   if (!store.get(KEY_SEEDED, false)) {
@@ -362,6 +424,11 @@
     var missing = FACTION_ORDER.filter(function (k) { return !DATA.factions[k]; }).map(function (k) { return FACTION_NAMES[k]; });
     h += (missing.length ? '<span class="muted" style="font-size:13px">' + esc(missing.join(' and ')) + (missing.length > 1 ? ' are' : ' is') + ' not in the app yet.</span>' : '') + '</div>';
     h += '<div class="card plain stack"><h3>Loading from a seed</h3><p class="muted" style="font-size:13px;line-height:1.5">Seed import reads the army you saved to the cloud in Archon\'s Command Center. It isn\'t an official feature, so it can stop working if the Command Center changes. Armies you\'ve already loaded stay on your device either way. BM is Zerg Biomass, PE is Protoss Psionic Energy, and CP is the Terran resource.</p></div>';
+    h += '<div class="card plain stack" id="sounds"><h3>Sound pack</h3><p class="muted" style="font-size:13px;line-height:1.5">The app has no sounds of its own. Load a sound pack file to hear unit deaths, building cards and hero abilities during a game. The pack stays on this device and is never uploaded or shared.</p>' +
+      (soundsLoaded() ? '<p style="font-size:13px">Loaded: <b>' + esc(SND.name || 'Sound pack') + '</b> · ' + Object.keys(SND.sounds).length + ' sounds</p>' : '<p class="muted" style="font-size:13px">No sound pack loaded.</p>') +
+      '<div class="row"><label class="btn' + (soundsLoaded() ? '' : ' primary') + '">' + (SND.busy ? 'Loading…' : (soundsLoaded() ? 'Replace sound pack' : 'Load sound pack')) +
+      '<input type="file" accept=".json,application/json" data-in="soundpack" style="position:absolute;left:-9999px"></label>' +
+      (soundsLoaded() ? '<button class="btn" data-act="sound-toggle">' + (SND.on ? 'Mute sounds' : 'Unmute sounds') + '</button><button class="btn" data-act="sound-remove">Remove pack</button>' : '') + '</div></div>';
     h += '<p class="muted mono">App version ' + VERSION + '</p>';
     return h + '</div>';
   }
@@ -620,6 +687,7 @@
       '<button class="iconbtn" data-act="bm" data-d="-1" aria-label="Remove 1 ' + RC + '">−</button><span class="val" aria-live="polite">' + ps.bm + '</span>' +
       '<button class="iconbtn" data-act="bm" data-d="1" aria-label="Add 1 ' + RC + '">+</button>' +
       '<span class="mono exhcount" style="color:var(--text2)">' + exhCount + '/' + cardTotal + ' CARDS EXHAUSTED</span>' +
+      (soundsLoaded() ? '<button class="iconbtn" data-act="sound-toggle" aria-pressed="' + SND.on + '" aria-label="' + (SND.on ? 'Mute sounds' : 'Unmute sounds') + '">' + (SND.on ? '🔊' : '🔇') + '</button>' : '') +
       '<button class="btn primary" style="margin-left:auto" data-act="readyall">Ready all cards</button></div></div>';
     h += '<div class="tiles"><div class="tile"><b>' + t.supply + '</b><span>SUPPLY</span></div><div class="tile"><b>' + t.units + '</b><span>UNITS</span></div><div class="tile"><b>' + t.models + '</b><span>MODELS</span></div><div class="tile"><b>' + t.bm + '</b><span>' + RC + ' ON CARDS</span></div>' +
       (a.minerals ? '<div class="tile"><b>' + a.minerals.used + '</b><span>MINERALS</span></div>' : '') +
@@ -646,7 +714,7 @@
       var def = q.def, s = q.s, col = colorFor(def.id);
       var H = healthOf(def, s.upgrades, s.models, ps.dmg[s.uid]), hpv = H.hpv, max = H.max, rem = H.rem, alive = H.alive;
       var dim = focus !== 'all' && focus !== def.id;
-      h += '<div class="card unit stack' + (dim ? ' dim' : '') + '" style="gap:10px"><div class="head"><div class="stack" style="gap:3px;min-width:0">' +
+      h += '<div class="card unit stack' + (dim ? ' dim' : '') + '" data-unitcard="' + def.id + '" style="gap:10px;scroll-margin-top:12px"><div class="head"><div class="stack" style="gap:3px;min-width:0">' +
         '<span class="name" style="color:' + col + '">' + esc(q.name) + '</span><span class="muted" style="font-size:12px">' +
         (def.slot === 'Summoned' ? 'Summoned · ' + s.models + ' models · Supply 0' : esc(def.slot) + ' · ' + s.models + (s.models === 1 ? ' model' : ' models') + ' · Supply ' + supplyFor(def, s.models)) + '</span>' +
         (s.upgrades.length ? '<span class="mono" style="color:var(--upg)">+ ' + esc(s.upgrades.map(function (u) { return upgName(def, u); }).join(', ')) + '</span>' : '') + '</div>' +
@@ -720,7 +788,7 @@
         } else {
           var opts = bmc.n ? [bmc.n] : (function () { var o = []; for (var v = bmc.min; v <= bmc.max; v++) { o.push(v); } return o; })();
           out += '<span>' + (ps.bm >= opts[0] ? 'Pay from your ' + RC + ' pool (you have ' + ps.bm + ').' : 'Not enough ' + RC + ': your pool has ' + ps.bm + '.') + '</span><div class="row">';
-          opts.forEach(function (v) { out += '<button class="btn primary" data-act="pay" data-n="' + v + '"' + (ps.bm < v ? ' disabled' : '') + '>Pay ' + v + ' ' + RC + '</button>'; });
+          opts.forEach(function (v) { out += '<button class="btn primary" data-act="pay" data-n="' + v + '" data-owners="' + esc((e.owners || []).join(',')) + '" data-ab="' + esc(x.name) + '"' + (ps.bm < v ? ' disabled' : '') + '>Pay ' + v + ' ' + RC + '</button>'; });
         }
         out += '<button class="btn" data-act="cancel">Cancel</button></div></div>';
       }
@@ -808,7 +876,17 @@
         var el = document.getElementById(t.getAttribute('data-to'));
         if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
         break;
-      case 'focus': ui.focus = t.getAttribute('data-id'); render(); break;
+      case 'sound-toggle': SND.on = !SND.on; store.set('tmg-sound-on', SND.on); render(); break;
+      case 'sound-remove': removePack(); break;
+      case 'focus':
+        var fid = t.getAttribute('data-id'); ui.focus = fid; render();
+        if (fid !== 'all' && fid !== 'cards') {
+          var fdef = unitDef(fac(a), fid);
+          if (fdef) { var b0 = baseUnitId(fac(a), fdef); playKeyed(['select:' + fid].concat(b0 ? ['select:' + b0] : [])); }
+          var target = root.querySelector('[data-unitcard="' + fid + '"]');
+          if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+        }
+        break;
       case 'bm': ps.bm = Math.max(0, ps.bm + parseInt(t.getAttribute('data-d'), 10)); setPlay(ps); break;
       case 'readyall': ps.exh = {}; ui.pending = null; setPlay(ps); break;
       case 'resethp': ps.dmg = {}; setPlay(ps); break;
@@ -816,8 +894,11 @@
       case 'heal':
         var su = t.getAttribute('data-uid'), sq = null;
         a.units.forEach(function (s) { if (s.uid === su) { sq = s; } });
-        var max = unitMax(unitDef(fac(a), sq.unit), sq.upgrades, sq.models), cur = ps.dmg[su] || 0;
+        var sdef = unitDef(fac(a), sq.unit), max = unitMax(sdef, sq.upgrades, sq.models), cur = ps.dmg[su] || 0;
+        var before = healthOf(sdef, sq.upgrades, sq.models, cur).alive;
         ps.dmg[su] = act === 'hit' ? Math.min(max, cur + 1) : Math.max(0, cur - 1);
+        var after = healthOf(sdef, sq.upgrades, sq.models, ps.dmg[su]).alive;
+        if (after < before) { soundDeath(fac(a), sdef, after === 0); }
         setPlay(ps);
         break;
       case 'tap': ui.pending = ui.pending === t.getAttribute('data-key') ? null : t.getAttribute('data-key'); render(); break;
@@ -825,6 +906,7 @@
       case 'exhaust':
         var cid = t.getAttribute('data-card'), mode = t.getAttribute('data-mode'), cdef = cardDef(fac(a), cid);
         ps.exh[cid] = mode; if (mode === 'bm') { ps.bm += cdef.bm || 0; }
+        if (cdef.type === 'tactical') { playKeyed(['card:' + cid]); }
         ui.pending = null; setPlay(ps);
         break;
       case 'ready':
@@ -834,7 +916,15 @@
         break;
       case 'pay':
         var n = parseInt(t.getAttribute('data-n'), 10);
-        if (ps.bm >= n) { ps.bm -= n; } ui.pending = null; setPlay(ps);
+        if (ps.bm >= n) {
+          ps.bm -= n;
+          var own = (t.getAttribute('data-owners') || '').split(','), done = {};
+          a.units.forEach(function (s) {
+            if (own.indexOf(s.uid) === -1 || done[s.unit]) { return; }
+            done[s.unit] = true; soundAbility(fac(a), unitDef(fac(a), s.unit), t.getAttribute('data-ab') || '');
+          });
+        }
+        ui.pending = null; setPlay(ps);
         break;
     }
   });
@@ -855,6 +945,7 @@
   });
   root.addEventListener('change', function (ev) {
     var t = ev.target, kind = t.getAttribute('data-in'); if (!kind || kind === 'name') { return; }
+    if (kind === 'soundpack') { if (t.files && t.files[0]) { loadPackFile(t.files[0]); } return; }
     var a = findArmy(route().id); if (!a) { return; }
     if (kind === 'fc') { a.factionCard = t.value; }
     if (kind === 'card') {
