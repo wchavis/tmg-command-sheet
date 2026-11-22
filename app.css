@@ -57,7 +57,7 @@ p{margin:0}
 .empty{padding:12px 14px;font-size:13px;color:var(--muted);border:1px dashed rgba(255,255,255,.18)}
 
 /* stat tiles */
-.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
 .tile{display:flex;flex-direction:column;gap:2px;padding:9px 10px;background:rgba(255,255,255,.05);border-top:2px solid var(--accent)}
 .tile b{font-family:var(--display);font-weight:600;font-size:20px}
 .tile span{font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--muted)}

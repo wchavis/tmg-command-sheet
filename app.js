@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.0.0';
+  var VERSION = '1.1.0';
   var DATA = window.TMG_DATA;
   var root = document.getElementById('app');
 
@@ -79,6 +79,94 @@
     } catch (e) { return null; }
   }
 
+  /* ---------- Command Center seed import (unofficial, read-only) ---------- */
+  var SEED_URL = 'https://firestore.googleapis.com/v1/projects/starcrafttmgbeta/databases/starcrafttmgbeta/documents/shared_rosters/';
+  function norm(s) { return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]/g, ''); }
+  function fsVal(v) {
+    if (!v || typeof v !== 'object') { return v; }
+    if ('stringValue' in v) { return v.stringValue; }
+    if ('integerValue' in v) { return Number(v.integerValue); }
+    if ('doubleValue' in v) { return v.doubleValue; }
+    if ('booleanValue' in v) { return v.booleanValue; }
+    if ('nullValue' in v) { return null; }
+    if ('timestampValue' in v) { return v.timestampValue; }
+    if ('arrayValue' in v) { return (v.arrayValue.values || []).map(fsVal); }
+    if ('mapValue' in v) { var o = {}, f = v.mapValue.fields || {}; for (var k in f) { o[k] = fsVal(f[k]); } return o; }
+    return null;
+  }
+  function fetchSeed(seed) {
+    return fetch(SEED_URL + encodeURIComponent(seed), { cache: 'no-store' }).then(function (r) {
+      if (r.status === 404) { throw { kind: 'notfound' }; }
+      if (!r.ok) { throw { kind: 'http', status: r.status }; }
+      return r.json();
+    }, function () { throw { kind: 'network' }; }).then(function (j) {
+      var o = {}, f = j.fields || {}; for (var k in f) { o[k] = fsVal(f[k]); }
+      if (!o.state) { throw { kind: 'empty' }; }
+      return o.state;
+    });
+  }
+  function armyFromSeed(seed, s) {
+    var fkey = norm(s.faction), f = DATA.factions[fkey];
+    if (!f) { throw { kind: 'faction', name: s.faction || 'That faction' }; }
+    var skipped = [];
+    function findUnit(u) {
+      var a = norm(u.id), b = norm(u.name);
+      for (var i = 0; i < f.units.length; i++) { var d = f.units[i]; if (norm(d.id) === a || norm(d.name) === a || norm(d.name) === b) { return d; } }
+      return null;
+    }
+    function findCard(id) {
+      var n = norm(id); if (!n) { return null; }
+      for (var i = 0; i < f.cards.length; i++) { var c = f.cards[i]; if (norm(c.id) === n || norm(c.name) === n || (c.short && norm(c.short) === n)) { return c; } }
+      return null;
+    }
+    var units = (s.roster || []).map(function (u) {
+      var d = findUnit(u);
+      if (!d) { skipped.push(u.name || u.id); return null; }
+      var names = (u.activeUpgrades || []).map(function (x) {
+        if (typeof x === 'number') { var au = (u.availableUpgrades || [])[x]; return au ? au.name : null; }
+        return x && x.name ? x.name : x;
+      }).filter(Boolean);
+      var ups = d.upgrades.filter(function (up) { return names.some(function (n) { return norm(n) === norm(up.name); }); }).map(function (up) { return up.id; });
+      var n = parseInt(u.models, 10) || minModels(d);
+      return U(d.id, Math.max(minModels(d), Math.min(maxModels(d), n)), ups);
+    }).filter(Boolean);
+    var fc = findCard(s.factionCardId);
+    if (!fc || fc.type !== 'faction') { skipped.push('faction card ' + (s.factionCardId || '?')); fc = f.cards.filter(function (c) { return c.type === 'faction'; })[0]; }
+    var cards = [];
+    (s.tacticalCardIds || []).forEach(function (id) {
+      var c = findCard(id);
+      if (!c) { skipped.push(String(id).replace(/_+/g, ' ').trim()); } else if (cards.indexOf(c.id) === -1) { cards.push(c.id); }
+    });
+    return {
+      name: fc.name + ' ' + (s.mineralsUsed || '') + ' · ' + seed, faction: fkey, factionCard: fc.id, cards: cards, units: units,
+      seed: seed, imported: now(), skipped: skipped,
+      minerals: s.mineralsUsed != null ? { used: s.mineralsUsed, limit: s.mineralsLimit } : null,
+      gas: s.gasUsed != null ? { used: s.gasUsed, limit: s.gasLimit } : null
+    };
+  }
+  function seedError(e) {
+    if (e && e.kind === 'notfound') { return 'No army was found with that seed. Check the code and try again.'; }
+    if (e && e.kind === 'network') { return 'Couldn\'t reach the Command Center. Check your signal and try again.'; }
+    if (e && e.kind === 'faction') { return e.name + ' isn\'t in the app yet. Only Zerg can be loaded for now.'; }
+    return 'That seed couldn\'t be loaded. The Command Center may have changed how it stores armies.';
+  }
+  function loadSeedInto(seed, existing) {
+    ui.seedBusy = true; ui.seedMsg = ''; render();
+    fetchSeed(seed).then(function (state) {
+      var imp = armyFromSeed(seed, state);
+      ui.seedBusy = false; ui.seedValue = '';
+      if (existing) {
+        ['faction', 'factionCard', 'cards', 'units', 'seed', 'imported', 'skipped', 'minerals', 'gas'].forEach(function (k) { existing[k] = imp[k]; });
+        existing.updated = now(); saveArmies(); store.del(playKey(existing));
+        toast('Updated from seed ' + seed); render();
+      } else {
+        imp.id = uid(); imp.created = imp.updated = now();
+        armies.push(imp); saveArmies();
+        go('#/edit/' + imp.id); toast('Loaded seed ' + seed);
+      }
+    }).catch(function (e) { ui.seedBusy = false; ui.seedMsg = seedError(e); render(); });
+  }
+
   /* squads with display names */
   function squadsOf(a) {
     var f = fac(a), counts = {}, seen = {};
@@ -124,7 +212,7 @@
     return { name: parts[0] || 'home', id: parts.slice(1).join('/') };
   }
   function go(hash) { location.hash = hash; }
-  window.addEventListener('hashchange', function () { ui.pending = null; ui.adding = false; ui.confirmDelete = false; ui.focus = 'all'; render(true); });
+  window.addEventListener('hashchange', function () { ui.pending = null; ui.adding = false; ui.confirmDelete = false; ui.focus = 'all'; ui.seedMsg = ''; render(true); });
 
   function toast(msg) {
     ui.toast = msg; render();
@@ -185,7 +273,13 @@
       '<div class="row">' + (installEvt ? '<button class="btn soft" data-act="install">Install app</button>' : '') +
       '<a class="btn" href="#/about">About</a></div></div>';
     h += '<p class="muted" style="font-size:14px;line-height:1.5;max-width:720px">Build an army from your Command Center roster, then play from one screen: abilities and weapons sorted by phase, health and model counts, exhausted cards and your BM pool.</p>';
-    h += '<div class="row"><button class="btn primary" data-act="new">New army</button></div>';
+    h += '<div class="row" style="align-items:stretch"><button class="btn primary" data-act="new">New army</button>' +
+      '<form class="row" data-form="seed" style="gap:8px;flex-wrap:nowrap" autocomplete="off">' +
+      '<label for="seedInput" class="label" style="position:absolute;left:-9999px">Command Center seed</label>' +
+      '<input id="seedInput" class="text" data-in="seed" value="' + esc(ui.seedValue || '') + '" placeholder="SEED ID" maxlength="10" autocapitalize="characters" spellcheck="false" style="width:130px;text-transform:uppercase;font-family:var(--mono);letter-spacing:.1em">' +
+      '<button class="btn soft" type="submit"' + (ui.seedBusy ? ' disabled' : '') + '>' + (ui.seedBusy ? 'Loading…' : 'Load from seed') + '</button></form></div>';
+    h += '<p class="muted" style="font-size:12px;line-height:1.5;max-width:720px">Saved an army to the cloud in the Command Center? Enter its seed to bring it in with units, model counts, upgrades and cards.</p>';
+    if (ui.seedMsg) { h += '<p class="warn" role="alert">' + esc(ui.seedMsg) + '</p>'; }
     if (!armies.length) {
       h += '<p class="empty">No armies yet. Tap New army to build one.</p>';
     } else {
@@ -193,7 +287,7 @@
       armies.slice().sort(function (x, y) { return (y.updated || 0) - (x.updated || 0); }).forEach(function (a) {
         var f = fac(a), t = armyTotals(a), fc = cardDef(f, a.factionCard);
         h += '<div class="card army"><div class="stack" style="gap:4px"><span class="kicker">' + esc(f.name) + ' · ' + esc(fc ? fc.name : '') + '</span>' +
-          '<h3 style="font-size:18px">' + esc(a.name) + '</h3><span class="meta">' + t.units + ' units · ' + t.models + ' models · Supply ' + t.supply + ' · ' + a.cards.length + ' cards</span></div>' +
+          '<h3 style="font-size:18px">' + esc(a.name) + '</h3><span class="meta">' + t.units + ' units · ' + t.models + ' models · Supply ' + t.supply + ' · ' + a.cards.length + ' cards' + (a.seed ? ' · seed ' + esc(a.seed) : '') + '</span></div>' +
           '<div class="row"><a class="btn primary" href="#/play/' + a.id + '">Play</a><a class="btn" href="#/edit/' + a.id + '">Edit</a></div></div>';
       });
       h += '</div>';
@@ -216,6 +310,7 @@
       f.sources.forEach(function (s) { h += '<span class="muted" style="font-size:13px">' + esc(s.label) + ': ' + esc(s.version) + '</span>'; });
     });
     h += '<span class="muted" style="font-size:13px">Terran and Protoss are not in the app yet.</span></div>';
+    h += '<div class="card plain stack"><h3>Loading from a seed</h3><p class="muted" style="font-size:13px;line-height:1.5">Seed import reads the army you saved to the cloud in Archon\'s Command Center. It isn\'t an official feature, so it can stop working if the Command Center changes. Armies you\'ve already loaded stay on your device either way. BM means Biomass.</p></div>';
     h += '<p class="muted mono">App version ' + VERSION + '</p>';
     return h + '</div>';
   }
@@ -244,6 +339,15 @@
     var h = '<div class="inner">';
     h += '<div class="topbar"><div class="left"><a class="btn small" href="#/">' + ICON.back + ' Armies</a></div><div class="row"><a class="btn primary" href="#/play/' + a.id + '">Play</a></div></div>';
     h += '<div class="field"><label for="armyName">Army name</label><input id="armyName" class="text" data-in="name" value="' + esc(a.name) + '" maxlength="80" autocomplete="off"></div>';
+    if (a.seed) {
+      h += '<div class="card plain stack"><div class="row" style="justify-content:space-between"><div class="stack" style="gap:3px"><span class="kicker">Command Center seed</span>' +
+        '<span style="font-family:var(--mono);font-size:16px;letter-spacing:.1em">' + esc(a.seed) + '</span>' +
+        '<span class="muted" style="font-size:12px">Loaded ' + esc(new Date(a.imported || a.created).toLocaleString()) + (a.minerals ? ' · ' + a.minerals.used + '/' + a.minerals.limit + ' minerals' : '') + (a.gas ? ' · ' + a.gas.used + '/' + a.gas.limit + ' gas' : '') + '</span></div>' +
+        '<button class="btn soft" data-act="seed-update"' + (ui.seedBusy ? ' disabled' : '') + '>' + (ui.seedBusy ? 'Loading…' : 'Update from seed') + '</button></div>' +
+        '<span class="muted" style="font-size:12px;line-height:1.4">Updating replaces this army\'s units and cards with what\'s saved under the seed, and resets its game tracking.</span>' +
+        (ui.seedMsg ? '<span class="warn" role="alert">' + esc(ui.seedMsg) + '</span>' : '') +
+        ((a.skipped || []).length ? '<span class="warn">Not in the app yet, so left out: ' + esc(a.skipped.join(', ')) + '</span>' : '') + '</div>';
+    }
 
     h += '<div class="editlayout"><div class="col">';
     h += secHead(ICON.list, 'Units', 'Roster', 'Add units, set model counts, tick upgrades', '<span class="count">' + a.units.length + '</span>');
@@ -467,7 +571,9 @@
       '<button class="iconbtn" data-act="bm" data-d="1" aria-label="Add 1 BM">+</button>' +
       '<span class="mono exhcount" style="color:var(--text2)">' + exhCount + '/' + cardTotal + ' CARDS EXHAUSTED</span>' +
       '<button class="btn primary" style="margin-left:auto" data-act="readyall">Ready all cards</button></div></div>';
-    h += '<div class="tiles"><div class="tile"><b>' + t.supply + '</b><span>SUPPLY</span></div><div class="tile"><b>' + t.units + '</b><span>UNITS</span></div><div class="tile"><b>' + t.models + '</b><span>MODELS</span></div><div class="tile"><b>' + t.bm + '</b><span>BM ON CARDS</span></div></div>';
+    h += '<div class="tiles"><div class="tile"><b>' + t.supply + '</b><span>SUPPLY</span></div><div class="tile"><b>' + t.units + '</b><span>UNITS</span></div><div class="tile"><b>' + t.models + '</b><span>MODELS</span></div><div class="tile"><b>' + t.bm + '</b><span>BM ON CARDS</span></div>' +
+      (a.minerals ? '<div class="tile"><b>' + a.minerals.used + '</b><span>MINERALS</span></div>' : '') +
+      (a.gas ? '<div class="tile"><b>' + a.gas.used + '</b><span>GAS</span></div>' : '') + '</div>';
 
     var jumps = [['≡', 'Roster', 'sec-roster'], ['01', 'Move', 'ph-move'], ['02', 'Assault', 'ph-assault'], ['03', 'Combat', 'ph-combat'], ['04', 'Score', 'ph-score'], ['∞', 'Always', 'ph-any']];
     h += '<div class="tools"><nav class="jnav" aria-label="Jump to section">' + jumps.map(function (j) { return '<a href="#" data-act="jump" data-to="' + j[2] + '"><span>' + j[0] + '</span><span>' + j[1] + '</span></a>'; }).join('') + '</nav>';
@@ -608,6 +714,7 @@
         var ia = decodeArmy(t.getAttribute('data-code'));
         if (ia) { armies.push(ia); saveArmies(); go('#/edit/' + ia.id); }
         break;
+      case 'seed-update': if (a && a.seed) { loadSeedInto(a.seed, a); } break;
       case 'add-unit': ui.adding = true; render(); break;
       case 'cancel-add': ui.adding = false; render(); break;
       case 'pick-unit':
@@ -679,8 +786,17 @@
     }
   });
 
+  root.addEventListener('submit', function (ev) {
+    if (ev.target.getAttribute('data-form') !== 'seed') { return; }
+    ev.preventDefault();
+    var v = (ui.seedValue || '').trim().toUpperCase();
+    if (!/^[A-Z0-9]{3,10}$/.test(v)) { ui.seedMsg = 'Enter the seed exactly as the Command Center shows it, like CVI539.'; render(); return; }
+    if (!ui.seedBusy) { loadSeedInto(v, null); }
+  });
   root.addEventListener('input', function (ev) {
-    var t = ev.target; if (t.getAttribute('data-in') !== 'name') { return; }
+    var t = ev.target;
+    if (t.getAttribute('data-in') === 'seed') { ui.seedValue = t.value.toUpperCase(); return; }
+    if (t.getAttribute('data-in') !== 'name') { return; }
     var a = findArmy(route().id); if (!a) { return; }
     a.name = t.value; a.updated = now(); saveArmies();
   });
