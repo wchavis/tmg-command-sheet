@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.4.1';
+  var VERSION = '1.4.2';
   var DATA = window.TMG_DATA;
   var root = document.getElementById('app');
 
