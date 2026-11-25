@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.8.0';
+  var VERSION = '1.8.1';
   var DATA = window.TMG_DATA;
   var root = document.getElementById('app');
 
@@ -41,7 +41,7 @@
   function soundsLoaded() { return Object.keys(SND.sounds).length > 0 || Object.keys(SND.images || {}).length > 0; }
   function setPack(p) {
     Object.keys(SND.art || {}).forEach(function (k) { try { URL.revokeObjectURL(SND.art[k]); } catch (e) {} });
-    SND.name = (p && p.name) || ''; SND.sounds = (p && p.sounds) || {}; SND.images = (p && p.images) || {}; SND.skins = (p && p.skins) || {}; SND.cache = {}; SND.art = {}; skinKey = '';
+    SND.name = (p && p.name) || ''; SND.sounds = (p && p.sounds) || {}; SND.images = (p && p.images) || {}; SND.skins = (p && p.skins) || {}; SND.alias = (p && p.alias) || {}; SND.cache = {}; SND.art = {}; skinKey = '';
   }
   /* Portraits and icons from the pack: key portrait:<unitId> or icon:<cardId>. Data URLs become blob URLs once. */
   function artUrl(keys) {
@@ -90,7 +90,7 @@
     return false;
   }
   function baseUnitId(f, def) {
-    var m = /\(([^)]+)\)\s*$/.exec(def.name || ''); if (!m) { return null; }
+    var m = /\(([^)]+)\)\s*$/.exec(def.name || ''); if (!m) { return (SND.alias && SND.alias[def.id]) || null; }
     var n = norm(m[1]), hit = f.units.filter(function (u) { return norm(u.name) === n; })[0];
     return hit ? hit.id : null;
   }
