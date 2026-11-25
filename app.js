@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.6.0';
+  var VERSION = '1.7.0';
   var DATA = window.TMG_DATA;
   var root = document.getElementById('app');
 
@@ -41,7 +41,7 @@
   function soundsLoaded() { return Object.keys(SND.sounds).length > 0 || Object.keys(SND.images || {}).length > 0; }
   function setPack(p) {
     Object.keys(SND.art || {}).forEach(function (k) { try { URL.revokeObjectURL(SND.art[k]); } catch (e) {} });
-    SND.name = (p && p.name) || ''; SND.sounds = (p && p.sounds) || {}; SND.images = (p && p.images) || {}; SND.cache = {}; SND.art = {}; skinKey = '';
+    SND.name = (p && p.name) || ''; SND.sounds = (p && p.sounds) || {}; SND.images = (p && p.images) || {}; SND.skins = (p && p.skins) || {}; SND.cache = {}; SND.art = {}; skinKey = '';
   }
   /* Portraits and icons from the pack: key portrait:<unitId> or icon:<cardId>. Data URLs become blob URLs once. */
   function artUrl(keys) {
@@ -83,6 +83,7 @@
         var j = Math.floor(Math.random() * list.length), ck = keys[i] + '#' + j;
         var au = SND.cache[ck] || (SND.cache[ck] = new Audio(list[j]));
         try { au.currentTime = 0; var pr = au.play(); if (pr && pr.catch) { pr.catch(function () {}); } } catch (e) {}
+        SND.lastPlay = Date.now();
         return true;
       }
     }
@@ -312,6 +313,8 @@
     return { name: parts[0] || 'home', id: parts.slice(1).join('/') };
   }
   function go(hash) { location.hash = hash; }
+  var lastPage = route().name;
+  window.addEventListener('hashchange', function () { var pg = route().name; if (pg !== lastPage) { lastPage = pg; playKeyed(['ui:swish']); } });
   window.addEventListener('hashchange', function () { ui.pending = null; ui.adding = false; ui.confirmDelete = false; ui.focus = 'all'; ui.seedMsg = ''; render(true); });
 
   function toast(msg) {
@@ -344,20 +347,28 @@
   var SKIN_PARTS = ['frame', 'btn', 'btnDown', 'wide0', 'wide1', 'wide2', 'portrait', 'barEmpty', 'barTile'];
   var skinKey = '';
   function applySkin(k) {
-    var el = document.documentElement, on = SND.skinOn && !!(SND.images || {})['ui:' + k + ':frame'];
+    var el = document.documentElement, st = el.style, on = SND.skinOn && !!(SND.images || {})['ui:' + k + ':frame'];
     var key = on ? k + '|' + Object.keys(SND.images).length : 'off';
     if (key === skinKey) { return; }
     skinKey = key;
-    if (!on) { el.removeAttribute('data-skin'); return; }
-    SKIN_PARTS.forEach(function (part) { var u = artUrl(['ui:' + k + ':' + part]); if (u) { el.style.setProperty('--ui-' + part, 'url("' + u + '")'); } });
+    if (!on) { el.removeAttribute('data-skin'); el.removeAttribute('data-skin-bar'); return; }
+    SKIN_PARTS.forEach(function (part) {
+      var u = artUrl(['ui:' + k + ':' + part]);
+      if (u) { st.setProperty('--ui-' + part, 'url("' + u + '")'); } else { st.removeProperty('--ui-' + part); }
+    });
+    var m = (SND.skins || {})[k] || {};
+    st.setProperty('--ui-fs', m.slice || '54 65 54 54'); st.setProperty('--ui-fw', m.width || '16px 19px 16px 16px');
+    var w = m.win || [13.3, 4.7, 11.3, 7.8];
+    st.setProperty('--ui-wl', w[0] + '%'); st.setProperty('--ui-wt', w[1] + '%'); st.setProperty('--ui-ww', (100 - w[0] - w[2]) + '%'); st.setProperty('--ui-wh', (100 - w[1] - w[3]) + '%');
     el.setAttribute('data-skin', k);
+    if ((SND.images || {})['ui:' + k + ':barEmpty']) { el.setAttribute('data-skin-bar', ''); } else { el.removeAttribute('data-skin-bar'); }
   }
 
   /* ---------- render ---------- */
   function render(routeChanged) {
     var r = route();
     var ra = (r.name === 'play' || r.name === 'edit') ? findArmy(r.id) : null;
-    applyTheme(ra ? ra.faction : 'zerg'); applySkin(ra ? ra.faction : 'zerg');
+    applyTheme(ra ? ra.faction : 'zerg'); applySkin(ra ? ra.faction : 'neutral');
     var keepScroll = !routeChanged && ui.lastRoute === r.name + '/' + r.id;
     var winY = window.scrollY;
     var rp = root.querySelector('.rpane'), pp = root.querySelector('.ppane');
@@ -996,6 +1007,15 @@
         ui.pending = null; setPlay(ps);
         break;
     }
+  });
+
+  /* Menu click sounds: console click on army screens, menu click elsewhere. Skipped when the tap already played a sound or changes page. */
+  root.addEventListener('click', function (ev) {
+    var t = ev.target.closest('button, [data-act], label.btn'); if (!t || t.disabled) { return; }
+    if (t.tagName === 'A' && t.getAttribute('href') && t.getAttribute('href').charAt(0) === '#' && t.getAttribute('data-act') !== 'jump') { return; }
+    if (SND.lastPlay && Date.now() - SND.lastPlay < 120) { return; }
+    var pg = route().name;
+    playKeyed(pg === 'play' || pg === 'edit' ? ['ui:click', 'ui:menu'] : ['ui:menu', 'ui:click']);
   });
 
   root.addEventListener('submit', function (ev) {

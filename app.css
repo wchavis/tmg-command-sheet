@@ -205,25 +205,26 @@ p{margin:0}
 /* ---------- Brood War skin (art comes from the on-device pack only) ---------- */
 .pwrap{display:contents}
 html[data-skin] body{background:#050307}
-html[data-skin] .card.unit,html[data-skin] .card.ab,html[data-skin] .cardrow,html[data-skin] .bmbar{clip-path:none;background:transparent;border:16px solid transparent;border-image:var(--ui-frame) 52 63 52 52 fill / 16px 19px 16px 16px stretch;padding:4px 6px}
+html[data-skin] .card,html[data-skin] .bmbar{clip-path:none;background:transparent;border:16px solid transparent;border-image:var(--ui-frame) var(--ui-fs) fill / var(--ui-fw) stretch;padding:4px 6px}
 html[data-skin] .card.ab.exhausted,html[data-skin] .cardrow.exhausted{opacity:.55}
 html[data-skin] .card.ab.open{filter:drop-shadow(0 0 6px rgba(var(--accent-rgb),.55))}
 html[data-skin] .iconbtn,html[data-skin] .hit,html[data-skin] .heal,html[data-skin] .btn.small.act{background:var(--ui-btn) center/100% 100% no-repeat;border:0;border-radius:0;color:#F2E3A0;text-shadow:0 1px 2px #000}
 html[data-skin] .iconbtn:active,html[data-skin] .hit:active,html[data-skin] .heal:active,html[data-skin] .btn.small.act:active{background-image:var(--ui-btnDown)}
 html[data-skin] .hit{color:#FF9C8A}
 html[data-skin] .heal{color:#A8F2CF}
-html[data-skin] .btn:not(.small.act){background:transparent;border:10px solid transparent;border-image:var(--ui-wide0) 22 34 22 22 fill / 10px 14px 10px 10px stretch;border-radius:0;color:#F2E3A0;text-shadow:0 1px 2px #000;min-height:44px;padding:0 6px}
+html[data-skin] .btn:not(.small.act){background:transparent;border:10px solid transparent;border-image:var(--ui-wide0) 22 34 22 22 fill / 10px 14px 10px 10px stretch;border-radius:0;color:#F2E3A0;text-shadow:0 1px 2px #000;min-height:44px;padding:0 6px;text-decoration:none}
 html[data-skin] .btn:not(.small.act):hover{border-image-source:var(--ui-wide1)}
 html[data-skin] .btn:not(.small.act):active{border-image-source:var(--ui-wide2)}
 html[data-skin] .btn.primary{color:#FFF27A}
-html[data-skin] .segs{gap:4px}
-html[data-skin] .segs i:not(.sh){height:14px;background:var(--ui-barEmpty) center/100% 100% no-repeat;border:0;border-radius:7px;overflow:hidden}
-html[data-skin] .segs i:not(.sh) em{background:var(--ui-barTile) left center/auto 100% repeat-x !important}
+html[data-skin-bar] .segs{gap:4px}
+html[data-skin-bar] .segs i:not(.sh){height:14px;background:var(--ui-barEmpty) center/100% 100% no-repeat;border:0;border-radius:7px;overflow:hidden}
+html[data-skin-bar] .segs i:not(.sh) em{background:var(--ui-barTile) left center/auto 100% repeat-x !important}
 html[data-skin] .pwrap{display:block;position:relative;width:66px;height:72px;flex:0 0 auto}
-html[data-skin] .pwrap .portrait{position:absolute;left:13.3%;top:4.7%;width:75.4%;height:87.5%;border:0;object-fit:cover}
+html[data-skin] .pwrap .portrait{position:absolute;left:var(--ui-wl);top:var(--ui-wt);width:var(--ui-ww);height:var(--ui-wh);border:0;object-fit:cover}
 html[data-skin] .pwrap::after{content:"";position:absolute;inset:0;background:var(--ui-portrait) center/100% 100% no-repeat;pointer-events:none}
-html[data-skin] .statgrid div,html[data-skin] .tile{background:rgba(0,0,0,.55);box-shadow:inset 0 0 0 1px rgba(120,60,40,.45)}
-html[data-skin] .chips button,html[data-skin] .jnav a{background:transparent!important;border:8px solid transparent!important;border-image:var(--ui-wide0) 22 34 22 22 fill / 8px 12px 8px 8px stretch!important;border-radius:0;text-shadow:0 1px 2px #000}
+html[data-skin] .statgrid div,html[data-skin] .tile{background:rgba(0,0,0,.55);box-shadow:inset 0 0 0 1px rgba(150,150,150,.25)}
+html[data-skin] .chips button,html[data-skin] .jnav a,html[data-skin] .pick{background:transparent!important;border:8px solid transparent!important;border-image:var(--ui-wide0) 22 34 22 22 fill / 8px 12px 8px 8px stretch!important;border-radius:0;text-shadow:0 1px 2px #000}
 html[data-skin] .chips button[aria-pressed=true]{border-image-source:var(--ui-wide1)!important;color:#FFF27A!important;filter:drop-shadow(0 0 5px rgba(255,220,90,.45))}
 html[data-skin] .jnav a span:first-child{color:#F2E3A0}
-html[data-skin] .sechead .ico{background:rgba(0,0,0,.6);box-shadow:inset 0 0 0 1px rgba(120,60,40,.6)}
+html[data-skin] .sechead .ico{background:rgba(0,0,0,.6);box-shadow:inset 0 0 0 1px rgba(150,150,150,.4)}
+html[data-skin] input.text,html[data-skin] select{background:#0b0b0d;border:1px solid rgba(160,160,160,.35);color:#F2E3A0}
