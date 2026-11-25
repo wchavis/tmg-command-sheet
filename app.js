@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.7.0';
+  var VERSION = '1.8.0';
   var DATA = window.TMG_DATA;
   var root = document.getElementById('app');
 
@@ -315,7 +315,7 @@
   function go(hash) { location.hash = hash; }
   var lastPage = route().name;
   window.addEventListener('hashchange', function () { var pg = route().name; if (pg !== lastPage) { lastPage = pg; playKeyed(['ui:swish']); } });
-  window.addEventListener('hashchange', function () { ui.pending = null; ui.adding = false; ui.confirmDelete = false; ui.focus = 'all'; ui.seedMsg = ''; render(true); });
+  window.addEventListener('hashchange', function () { ui.pending = null; ui.openUnit = null; ui.adding = false; ui.confirmDelete = false; ui.focus = 'all'; ui.seedMsg = ''; render(true); });
 
   function toast(msg) {
     ui.toast = msg; render();
@@ -617,6 +617,37 @@
     return ws;
   }
 
+  function unitDetailHtml(def, s) {
+    var ws = effectiveWeapons(def, s.upgrades), out = '<div class="udetail">';
+    [['assault', 'Ranged weapons · Assault phase'], ['combat', 'Close combat weapons · Combat phase']].forEach(function (g) {
+      var list = ws.filter(function (w) { return w.phase === g[0]; });
+      if (!list.length) { return; }
+      out += '<span class="kicker" style="color:var(--muted)">' + g[1] + '</span>';
+      list.forEach(function (w) {
+        out += '<div class="weapon"><div class="row" style="min-width:0"><h3 style="font-size:15px;font-family:var(--display);font-weight:600">' + esc(w.name) + '</h3>' + (w.upgraded ? '<span class="badge upg">UPGRADED</span>' : '') + '</div>' +
+          '<div class="wtable"><span class="h">RNG</span><span class="h">Target</span><span class="h">RoA</span><span class="h">Hit</span><span class="h">Surge type</span><span class="h">S Dice</span><span class="h">Dmg</span>' +
+          '<span class="v">' + esc(w.rng) + '</span><span>' + esc(w.tgt) + '</span><span class="v">' + esc(w.roa) + '</span><span class="v">' + esc(w.hit) + '</span><span>' + esc(w.surge) + '</span><span class="v">' + esc(w.sdice) + '</span><span class="v">' + esc(w.dmg) + '</span></div>' +
+          '<div class="kw"><b>Keyword</b><strong>' + esc(w.kw) + '</strong>' + (w.notes && w.notes.length ? '<em>' + esc(w.notes.join('; ')) + '</em>' : '') + '</div></div>';
+      });
+    });
+    if (!ws.length) { out += '<span class="muted" style="font-size:13px">No weapons.</span>'; }
+    var abs = def.abilities.map(function (x) { return { x: x, upg: false }; });
+    (def.upgrades || []).forEach(function (u) { if (s.upgrades.indexOf(u.id) !== -1) { (u.abilities || []).forEach(function (x) { abs.push({ x: x, upg: true }); }); } });
+    abs = abs.filter(function (e) { return e.x.kind !== 'Reminder'; });
+    var order = { move: 0, assault: 1, combat: 2, score: 3, any: 4 };
+    abs.sort(function (a, b) { return (order[a.x.phase] || 0) - (order[b.x.phase] || 0); });
+    if (abs.length) {
+      out += '<span class="kicker" style="color:var(--muted);padding-top:4px">Abilities and spells</span><div class="cardabs">';
+      abs.forEach(function (e) {
+        var x = e.x;
+        out += '<div class="cab"><div class="row" style="gap:8px;justify-content:space-between;flex-wrap:nowrap"><b>' + esc(x.name) + '</b><span class="mono" style="color:var(--accent-soft);font-size:11px;white-space:nowrap">' +
+          esc(PHASE_LABEL[x.phase] || '') + ' · ' + esc(x.kind.toUpperCase()) + (x.cost ? ' · ' + esc(x.cost) : '') + '</span></div><p>' + esc(x.text) + '</p>' +
+          ((x.note || e.upg) ? '<div class="row" style="gap:6px">' + (x.note ? '<span class="mono" style="color:var(--muted);font-size:11px">' + esc(x.note.toUpperCase()) + '</span>' : '') + (e.upg ? '<span class="badge upg">UPGRADE</span>' : '') + '</div>' : '') + '</div>';
+      });
+      out += '</div>';
+    }
+    return out + '</div>';
+  }
   var PHASE_LABEL = { move: 'MOVEMENT', assault: 'ASSAULT', combat: 'COMBAT', score: 'SCORING', any: 'ANY PHASE' };
   var KIND_RANK = { Active: 0, Reaction: 1, Passive: 2, Reminder: 3 };
 
@@ -771,7 +802,8 @@
       var H = healthOf(def, s.upgrades, s.models, ps.dmg[s.uid]), hpv = H.hpv, max = H.max, rem = H.rem, alive = H.alive;
       var dim = focus !== 'all' && focus !== def.id;
       var pic = unitArt(S.f, def);
-      h += '<div class="card unit stack' + (dim ? ' dim' : '') + '" data-unitcard="' + def.id + '" style="gap:10px;scroll-margin-top:12px"><div class="head">' +
+      var infoOpen = ui.openUnit === s.uid;
+      h += '<div class="card unit stack' + (dim ? ' dim' : '') + (infoOpen ? ' infoopen' : '') + '" data-unitcard="' + def.id + '" style="gap:10px;scroll-margin-top:12px"><div class="head" data-act="unit-info" data-uid="' + s.uid + '" role="button" tabindex="0" aria-expanded="' + infoOpen + '" aria-label="' + (infoOpen ? 'Hide' : 'Show') + ' details for ' + esc(q.name) + '">' +
         (pic ? '<span class="pwrap"><img class="portrait' + (rem === 0 ? ' gone' : '') + '" src="' + pic + '" alt="" style="border-color:' + col + '"></span>' : '') + '<div class="stack" style="gap:3px;min-width:0;flex:1">' +
         '<span class="name" style="color:' + col + '">' + esc(q.name) + '</span><span class="muted" style="font-size:12px">' +
         (def.slot === 'Summoned' ? 'Summoned · ' + s.models + ' models · Supply 0' : esc(def.slot) + ' · ' + s.models + (s.models === 1 ? ' model' : ' models') + ' · Supply ' + supplyFor(def, s.models)) + '</span>' +
@@ -787,7 +819,9 @@
       h += '</div><div class="hprow"><button class="hit" data-act="hit" data-uid="' + s.uid + '" aria-label="Deal 1 damage to ' + esc(q.name) + '">−</button><div class="mid">' +
         '<div class="num"><b>' + rem + '<small>/' + max + '</small></b><span>HP LEFT</span></div>' +
         (s.models > 1 ? '<div class="num"><b style="color:' + col + '">' + alive + '<small>/' + s.models + '</small></b><span>MODELS</span></div>' : '') +
-        '</div><button class="heal" data-act="heal" data-uid="' + s.uid + '" aria-label="Restore 1 HP to ' + esc(q.name) + '">+</button></div></div></div>';
+        '</div><button class="heal" data-act="heal" data-uid="' + s.uid + '" aria-label="Restore 1 HP to ' + esc(q.name) + '">+</button></div></div>' +
+        '<button class="infotoggle" data-act="unit-info" data-uid="' + s.uid + '" aria-expanded="' + infoOpen + '">' + (infoOpen ? '▾ Hide weapons and abilities' : '▸ Weapons and abilities') + '</button>' +
+        (infoOpen ? unitDetailHtml(def, s) : '') + '</div>';
     });
     h += '</section>';
 
@@ -982,6 +1016,10 @@
         break;
       case 'tap': ui.pending = ui.pending === t.getAttribute('data-key') ? null : t.getAttribute('data-key'); render(); break;
       case 'cancel': ui.pending = null; render(); break;
+      case 'unit-info':
+        var iu = t.getAttribute('data-uid'); ui.openUnit = ui.openUnit === iu ? null : iu;
+        if (ui.openUnit) { a.units.forEach(function (s0) { if (s0.uid === iu) { var d0 = unitDef(fac(a), s0.unit), b0 = baseUnitId(fac(a), d0); playKeyed(['select:' + d0.id].concat(b0 ? ['select:' + b0] : [])); } }); }
+        render(); break;
       case 'flip': ui.pending = 'flip:' + t.getAttribute('data-card'); render(); break;
       case 'exhaust':
         var cid = t.getAttribute('data-card'), mode = t.getAttribute('data-mode'), cdef = cardDef(fac(a), cid);
