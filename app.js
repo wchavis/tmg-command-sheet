@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.5.0';
+  var VERSION = '1.6.0';
   var DATA = window.TMG_DATA;
   var root = document.getElementById('app');
 
@@ -24,7 +24,7 @@
    * Pack file: JSON { name, sounds: { "<key>": ["data:audio/...;base64,...", ...] } }
    * Keys: death:<unitId> · destroyed:<unitId> · select:<unitId> · card:<cardId> · ability:<unitId> · ability:<unitId>:<abilityName>
    * A variant like "Raptor (Zergling)" falls back to the Zergling's sounds. */
-  var SND = { name: '', sounds: {}, images: {}, art: {}, cache: {}, on: store.get('tmg-sound-on', true), busy: false };
+  var SND = { name: '', sounds: {}, images: {}, art: {}, cache: {}, on: store.get('tmg-sound-on', true), skinOn: store.get('tmg-skin-on', true), busy: false };
   function idb(mode, fn) {
     return new Promise(function (res, rej) {
       if (!window.indexedDB) { rej(new Error('no-idb')); return; }
@@ -41,7 +41,7 @@
   function soundsLoaded() { return Object.keys(SND.sounds).length > 0 || Object.keys(SND.images || {}).length > 0; }
   function setPack(p) {
     Object.keys(SND.art || {}).forEach(function (k) { try { URL.revokeObjectURL(SND.art[k]); } catch (e) {} });
-    SND.name = (p && p.name) || ''; SND.sounds = (p && p.sounds) || {}; SND.images = (p && p.images) || {}; SND.cache = {}; SND.art = {};
+    SND.name = (p && p.name) || ''; SND.sounds = (p && p.sounds) || {}; SND.images = (p && p.images) || {}; SND.cache = {}; SND.art = {}; skinKey = '';
   }
   /* Portraits and icons from the pack: key portrait:<unitId> or icon:<cardId>. Data URLs become blob URLs once. */
   function artUrl(keys) {
@@ -340,12 +340,24 @@
     document.documentElement.setAttribute('data-faction', k);
     var meta = document.querySelector('meta[name=theme-color]'); if (meta) { meta.setAttribute('content', t.ground); }
   }
+  /* Brood War console skin: only when the on-device pack carries ui:<faction>:* art. */
+  var SKIN_PARTS = ['frame', 'btn', 'btnDown', 'wide0', 'wide1', 'wide2', 'portrait', 'barEmpty', 'barTile'];
+  var skinKey = '';
+  function applySkin(k) {
+    var el = document.documentElement, on = SND.skinOn && !!(SND.images || {})['ui:' + k + ':frame'];
+    var key = on ? k + '|' + Object.keys(SND.images).length : 'off';
+    if (key === skinKey) { return; }
+    skinKey = key;
+    if (!on) { el.removeAttribute('data-skin'); return; }
+    SKIN_PARTS.forEach(function (part) { var u = artUrl(['ui:' + k + ':' + part]); if (u) { el.style.setProperty('--ui-' + part, 'url("' + u + '")'); } });
+    el.setAttribute('data-skin', k);
+  }
 
   /* ---------- render ---------- */
   function render(routeChanged) {
     var r = route();
     var ra = (r.name === 'play' || r.name === 'edit') ? findArmy(r.id) : null;
-    applyTheme(ra ? ra.faction : 'zerg');
+    applyTheme(ra ? ra.faction : 'zerg'); applySkin(ra ? ra.faction : 'zerg');
     var keepScroll = !routeChanged && ui.lastRoute === r.name + '/' + r.id;
     var winY = window.scrollY;
     var rp = root.querySelector('.rpane'), pp = root.querySelector('.ppane');
@@ -451,7 +463,9 @@
       (soundsLoaded() ? '<p style="font-size:13px">Loaded: <b>' + esc(SND.name || 'Sound pack') + '</b> · ' + Object.keys(SND.sounds).length + ' sounds' + (Object.keys(SND.images || {}).length ? ' · ' + Object.keys(SND.images).length + ' portraits and icons' : '') + '</p>' : '<p class="muted" style="font-size:13px">No sound pack loaded.</p>') +
       '<div class="row"><label class="btn' + (soundsLoaded() ? '' : ' primary') + '">' + (SND.busy ? 'Loading…' : (soundsLoaded() ? 'Replace sound pack' : 'Load sound pack')) +
       '<input type="file" accept=".json,application/json" data-in="soundpack" style="position:absolute;left:-9999px"></label>' +
-      (soundsLoaded() ? '<button class="btn" data-act="sound-toggle">' + (SND.on ? 'Mute sounds' : 'Unmute sounds') + '</button><button class="btn" data-act="sound-remove">Remove pack</button>' : '') + '</div></div>';
+      (soundsLoaded() ? '<button class="btn" data-act="sound-toggle">' + (SND.on ? 'Mute sounds' : 'Unmute sounds') + '</button>' +
+        (Object.keys(SND.images || {}).some(function (k) { return k.indexOf('ui:') === 0; }) ? '<button class="btn" data-act="skin-toggle">' + (SND.skinOn ? 'Turn off Brood War look' : 'Turn on Brood War look') + '</button>' : '') +
+        '<button class="btn" data-act="sound-remove">Remove pack</button>' : '') + '</div></div>';
     h += '<p class="muted mono">App version ' + VERSION + '</p>';
     return h + '</div>';
   }
@@ -747,7 +761,7 @@
       var dim = focus !== 'all' && focus !== def.id;
       var pic = unitArt(S.f, def);
       h += '<div class="card unit stack' + (dim ? ' dim' : '') + '" data-unitcard="' + def.id + '" style="gap:10px;scroll-margin-top:12px"><div class="head">' +
-        (pic ? '<img class="portrait' + (rem === 0 ? ' gone' : '') + '" src="' + pic + '" alt="" style="border-color:' + col + '">' : '') + '<div class="stack" style="gap:3px;min-width:0;flex:1">' +
+        (pic ? '<span class="pwrap"><img class="portrait' + (rem === 0 ? ' gone' : '') + '" src="' + pic + '" alt="" style="border-color:' + col + '"></span>' : '') + '<div class="stack" style="gap:3px;min-width:0;flex:1">' +
         '<span class="name" style="color:' + col + '">' + esc(q.name) + '</span><span class="muted" style="font-size:12px">' +
         (def.slot === 'Summoned' ? 'Summoned · ' + s.models + ' models · Supply 0' : esc(def.slot) + ' · ' + s.models + (s.models === 1 ? ' model' : ' models') + ' · Supply ' + supplyFor(def, s.models)) + '</span>' +
         (s.upgrades.length ? '<span class="mono" style="color:var(--upg)">+ ' + esc(s.upgrades.map(function (u) { return upgName(def, u); }).join(', ')) + '</span>' : '') + '</div>' +
@@ -925,6 +939,7 @@
         break;
       case 'sound-toggle': SND.on = !SND.on; store.set('tmg-sound-on', SND.on); render(); break;
       case 'sound-remove': removePack(); break;
+      case 'skin-toggle': SND.skinOn = !SND.skinOn; store.set('tmg-skin-on', SND.skinOn); skinKey = ''; render(); break;
       case 'focus':
         var fid = t.getAttribute('data-id'); ui.focus = fid; render();
         if (fid !== 'all' && fid !== 'cards') {
